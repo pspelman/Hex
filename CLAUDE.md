@@ -2,6 +2,12 @@
 
 This file provides guidance for coding agents working in this repo.
 
+`AGENTS.md` at the repo root is a symlink to this file, so tools that look for either will land here.
+
+## Fork Notes
+
+This repo is `pspelman/Hex`, a fork of [`kitlangton/Hex`](https://github.com/kitlangton/Hex). We carry our own fixes and tuning on top of upstream (recent focus areas: super‑fast capture path, warm‑mic startup, double‑tap lock stability, sound‑effect engine lifecycle). When guidance in this file conflicts with upstream docs, trust this file.
+
 ## Project Overview
 
 Hex is a macOS menu bar application for on‑device voice‑to‑text. It supports Whisper (Core ML via WhisperKit) and Parakeet TDT v3 (Core ML via FluidAudio). Users activate transcription with hotkeys; text can be auto‑pasted into the active app.
@@ -12,29 +18,72 @@ Hex is a macOS menu bar application for on‑device voice‑to‑text. It suppor
 # Build the app
 xcodebuild -scheme Hex -configuration Release
 
-# Run tests (must be run from HexCore directory for unit tests)
+# Run HexCore unit tests (pure-Swift logic, fastest feedback loop)
 cd HexCore && swift test
 
-# Or run all tests via Xcode
+# Run a single HexCore test class or method
+cd HexCore && swift test --filter HotKeyProcessorTests
+cd HexCore && swift test --filter HotKeyProcessorTests.testDoubleTapLocks
+
+# Run all tests including Xcode-level integration tests
 xcodebuild test -scheme Hex
+
+# Lint (config at .swiftlint.yml)
+swiftlint
 
 # Open in Xcode (recommended for development)
 open Hex.xcodeproj
 ```
 
+### Test layout
+
+- `HexCore/Tests/HexCoreTests/` — SwiftPM unit tests for pure logic: `HotKeyProcessorTests`, `HexSettingsMigrationTests`, `WordRemappingTests`, `WordRemovalTests`. Fixtures live in `Tests/HexCoreTests/Fixtures/`. Run with `swift test`.
+- `HexTests/` — Xcode-level integration tests that need the app target (e.g. `RecordingRaceTests`). Run with `xcodebuild test -scheme Hex`.
+
+New unit-testable logic should go into HexCore so it can be exercised by `swift test` without launching the app.
+
 ## Architecture
 
-The app uses **The Composable Architecture (TCA)** for state management. Key architectural components:
+The app uses **The Composable Architecture (TCA)** for state management and is split across two Swift targets. Understanding the split is the single most important piece of context:
 
-### Features (TCA Reducers)
+### Target split: `HexCore` vs `Hex`
+
+- **`HexCore/`** — a local Swift Package (`swift-tools-version: 6.0`, `platforms: [.macOS(.v15)]`) containing the pure, unit‑testable core. No SwiftUI, no TCA reducers, minimal macOS‑framework coupling. Depends on Sauce, `swift-dependencies`, and `swift-log`. Contents:
+  - `Logic/` — `HotKeyProcessor`, `ModelPatternMatcher`, `RecordingDecision`
+  - `Settings/HexSettings.swift` — persisted settings, with migrations
+  - `Models/` — `HotKey`, `KeyEvent`, `KeyboardCommand`, `ParakeetModel`, `TranscriptionHistory`, `WordRemapping`, `WordRemoval`
+  - `PermissionClient/`, `SleepManagementClient/`, `TranscriptPersistenceClient/`
+  - `Logging.swift` — the shared `HexLog` helper (see below)
+  - `StoragePaths.swift`, `Constants.swift`
+- **`Hex/`** — the macOS app target. Depends on HexCore. Contents:
+  - `Features/` — TCA reducers (`App`, `Transcription`, `Settings`, `Settings/ModelDownload`, `History`, `Remappings`)
+  - `Clients/` — concrete adapters over OS/third‑party frameworks
+  - `Views/` — SwiftUI views (e.g. `InvisibleWindow` overlay host, `AutoDownloadBannerView`)
+  - `App/` — `HexApp`, `HexAppDelegate`, notifications, diagnostics, menu‑bar entry points
+  - `Models/` — app‑layer models (`AppHexSettings`, `HotkeyPermissionState`, `Language`, `ModelBootstrapState`)
+  - `Resources/` — bundled `models.json`, changelog, audio clips
+
+**Rule of thumb:** new pure logic belongs in HexCore so it can be covered by `swift test`. UI, TCA reducers, and code that pulls in AVFoundation / AppKit / WhisperKit / FluidAudio belongs under `Hex/`.
+
+### Language & concurrency
+
+- Swift 6 with strict concurrency. Prefer `Sendable`, actor isolation, and structured concurrency over Combine‑era patterns. Keep shared mutable state actor‑owned.
+- macOS 15+ (Apple Silicon). Target platform for both the app and HexCore.
+
+### Features (TCA Reducers, under `Hex/Features/`)
 - `AppFeature`: Root feature coordinating the app lifecycle
 - `TranscriptionFeature`: Core recording and transcription logic
-- `SettingsFeature`: User preferences and configuration
+- `SettingsFeature`: User preferences and configuration (delegates model install/list to `ModelDownloadFeature`)
+- `ModelDownloadFeature`: Curated model list, download progress, install/delete
 - `HistoryFeature`: Transcription history management
+- `Remappings`: Word remapping/removal UI (`WordRemappingsView`)
 
-### Dependency Clients
+### Dependency Clients (under `Hex/Clients/`)
 - `TranscriptionClient`: WhisperKit integration for ML transcription
+- `ParakeetClient` / `ParakeetClipPreparer`: FluidAudio (Parakeet TDT v3) adapter plus short‑clip padding/prep
 - `RecordingClient`: AVAudioRecorder wrapper for audio capture
+- `SuperFastCaptureController`: low‑latency warm‑mic capture path used for fast hotkey response
+- `SoundEffect`: audio feedback engine (files under `Resources/Audio/`); gated by shared settings
 - `PasteboardClient`: Clipboard operations
 - `KeyEventMonitorClient`: Global hotkey monitoring via Sauce framework
 
@@ -48,7 +97,7 @@ The app uses **The Composable Architecture (TCA)** for state management. Key arc
 
 ## Important Implementation Details
 
-1. **Hotkey Recording Modes**: The app supports both press-and-hold and double-tap recording modes, implemented in `HotKeyProcessor.swift`. See `docs/hotkey-semantics.md` for detailed behavior specifications including:
+1. **Hotkey Recording Modes**: The app supports both press-and-hold and double-tap recording modes, implemented in `HexCore/Sources/HexCore/Logic/HotKeyProcessor.swift`. See `docs/hotkey-semantics.md` for detailed behavior specifications including:
    - **Modifier-only hotkeys** (e.g., Option) use a **0.3s threshold** to prevent accidental triggers from OS shortcuts
    - **Regular hotkeys** (e.g., Cmd+A) use user's `minimumKeyTime` setting (default 0.2s)
    - Mouse clicks and extra modifiers are discarded within threshold, ignored after
@@ -87,7 +136,8 @@ The app uses **The Composable Architecture (TCA)** for state management. Key arc
 
 ## Building & Running
 
-- macOS 14+, Xcode 15+
+- macOS 15+ (Apple Silicon), Xcode 16+
+- HexCore uses `swift-tools-version: 6.0` with `platforms: [.macOS(.v15)]`
 
 ### Packages
 
@@ -207,6 +257,8 @@ Each release produces:
 - `Hex-{version}.zip` - For Homebrew cask
 - `hex-latest.dmg` - Always points to latest
 - `appcast.xml` - Sparkle update feed
+
+> The old GitHub Actions release workflows described in `.github/workflows/README.md` have been retired. All release work runs locally via the `tools/` CLI. Treat that README as historical.
 
 ### Troubleshooting
 
