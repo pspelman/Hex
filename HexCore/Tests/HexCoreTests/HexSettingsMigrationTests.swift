@@ -116,6 +116,15 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(decoded, original)
 	}
 
+	func testFreshInstallProvidesFourSlotDefaults() {
+		let settings = HexSettings()
+
+		XCTAssertNil(settings.liveHoldHotkey)
+		XCTAssertNil(settings.liveDoubleTapHotkey)
+		XCTAssertEqual(settings.batchHoldHotkey, HotKey(key: nil, modifiers: [.option]))
+		XCTAssertEqual(settings.batchDoubleTapHotkey, HotKey(key: nil, modifiers: [.option]))
+	}
+
 	private func loadFixture(named name: String) throws -> Data {
 		guard let url = Bundle.module.url(
 			forResource: name,
