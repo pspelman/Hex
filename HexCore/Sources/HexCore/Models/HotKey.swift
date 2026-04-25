@@ -148,7 +148,7 @@ public struct Modifier: Identifiable, Codable, Equatable, Hashable, Comparable, 
   }
 }
 
-public struct Modifiers: Codable, Equatable, ExpressibleByArrayLiteral, Sendable {
+public struct Modifiers: Codable, Equatable, Hashable, ExpressibleByArrayLiteral, Sendable {
   var modifiers: Set<Modifier>
 
   public var sorted: [Modifier] {
@@ -311,7 +311,7 @@ private enum DeviceModifierMask {
   static let rightControl: UInt64 = 0x00002000
 }
 
-public struct HotKey: Codable, Equatable, Sendable {
+public struct HotKey: Codable, Equatable, Hashable, Sendable {
   public var key: Key?
   public var modifiers: Modifiers
 

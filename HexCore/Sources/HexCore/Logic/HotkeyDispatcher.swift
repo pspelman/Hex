@@ -65,3 +65,23 @@ public struct HotkeyDispatcher: Sendable {
         }
     }
 }
+
+extension HotkeyDispatcher.Configuration {
+	/// For each unique chord present in the configuration, the set of slots bound to it.
+	/// Used internally to instantiate one HotKeyProcessor per unique chord.
+	func bindings() -> [HotKey: Set<HotkeyDispatcher.Slot>] {
+		var result: [HotKey: Set<HotkeyDispatcher.Slot>] = [:]
+		if let h = liveHoldHotkey { result[h, default: []].insert(.liveHold) }
+		if let h = liveDoubleTapHotkey { result[h, default: []].insert(.liveDoubleTap) }
+		if let h = batchHoldHotkey { result[h, default: []].insert(.batchHold) }
+		if let h = batchDoubleTapHotkey { result[h, default: []].insert(.batchDoubleTap) }
+		return result
+	}
+
+	/// All slots bound to the given chord with the given interaction pattern.
+	/// More than one means a runtime conflict.
+	func slotsBoundTo(chord: HotKey, pattern: HotkeyDispatcher.Pattern) -> Set<HotkeyDispatcher.Slot> {
+		guard let bound = bindings()[chord] else { return [] }
+		return bound.filter { $0.pattern == pattern }
+	}
+}
