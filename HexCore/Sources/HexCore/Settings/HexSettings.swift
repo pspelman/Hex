@@ -323,32 +323,48 @@ private enum HexSettingsSchema {
 			.liveHoldHotkey,
 			keyPath: \.liveHoldHotkey,
 			default: defaults.liveHoldHotkey,
+			decode: { container, key, defaultValue in
+				guard container.contains(key) else { return defaultValue }
+				return try container.decodeIfPresent(HotKey.self, forKey: key)
+			},
 			encode: { container, key, value in
-				try container.encodeIfPresent(value, forKey: key)
+				try container.encode(value, forKey: key)
 			}
 		).eraseToAny(),
 		SettingsField(
 			.liveDoubleTapHotkey,
 			keyPath: \.liveDoubleTapHotkey,
 			default: defaults.liveDoubleTapHotkey,
+			decode: { container, key, defaultValue in
+				guard container.contains(key) else { return defaultValue }
+				return try container.decodeIfPresent(HotKey.self, forKey: key)
+			},
 			encode: { container, key, value in
-				try container.encodeIfPresent(value, forKey: key)
+				try container.encode(value, forKey: key)
 			}
 		).eraseToAny(),
 		SettingsField(
 			.batchHoldHotkey,
 			keyPath: \.batchHoldHotkey,
 			default: defaults.batchHoldHotkey,
+			decode: { container, key, defaultValue in
+				guard container.contains(key) else { return defaultValue }
+				return try container.decodeIfPresent(HotKey.self, forKey: key)
+			},
 			encode: { container, key, value in
-				try container.encodeIfPresent(value, forKey: key)
+				try container.encode(value, forKey: key)
 			}
 		).eraseToAny(),
 		SettingsField(
 			.batchDoubleTapHotkey,
 			keyPath: \.batchDoubleTapHotkey,
 			default: defaults.batchDoubleTapHotkey,
+			decode: { container, key, defaultValue in
+				guard container.contains(key) else { return defaultValue }
+				return try container.decodeIfPresent(HotKey.self, forKey: key)
+			},
 			encode: { container, key, value in
-				try container.encodeIfPresent(value, forKey: key)
+				try container.encode(value, forKey: key)
 			}
 		).eraseToAny()
 	]
