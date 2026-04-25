@@ -49,6 +49,10 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var wordRemappings: [WordRemapping]
 	public var liveTranscriptionEnabled: Bool
 	public var liveTranscriptionChunkSize: LiveTranscriptionChunkSize
+	public var liveHoldHotkey: HotKey?
+	public var liveDoubleTapHotkey: HotKey?
+	public var batchHoldHotkey: HotKey?
+	public var batchDoubleTapHotkey: HotKey?
 
 	private mutating func normalizeDoubleTapSettings() {
 		if !doubleTapLockEnabled {
@@ -82,7 +86,11 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		wordRemovals: [WordRemoval] = HexSettings.defaultWordRemovals,
 		wordRemappings: [WordRemapping] = [],
 		liveTranscriptionEnabled: Bool = false,
-		liveTranscriptionChunkSize: LiveTranscriptionChunkSize = .ms1600
+		liveTranscriptionChunkSize: LiveTranscriptionChunkSize = .ms1600,
+		liveHoldHotkey: HotKey? = nil,
+		liveDoubleTapHotkey: HotKey? = nil,
+		batchHoldHotkey: HotKey? = HotKey(key: nil, modifiers: [.option]),
+		batchDoubleTapHotkey: HotKey? = HotKey(key: nil, modifiers: [.option])
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -110,6 +118,10 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.wordRemappings = wordRemappings
 		self.liveTranscriptionEnabled = liveTranscriptionEnabled
 		self.liveTranscriptionChunkSize = liveTranscriptionChunkSize
+		self.liveHoldHotkey = liveHoldHotkey
+		self.liveDoubleTapHotkey = liveDoubleTapHotkey
+		self.batchHoldHotkey = batchHoldHotkey
+		self.batchDoubleTapHotkey = batchDoubleTapHotkey
 		normalizeDoubleTapSettings()
 	}
 
@@ -160,6 +172,10 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case wordRemappings
 	case liveTranscriptionEnabled
 	case liveTranscriptionChunkSize
+	case liveHoldHotkey
+	case liveDoubleTapHotkey
+	case batchHoldHotkey
+	case batchDoubleTapHotkey
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -302,6 +318,38 @@ private enum HexSettingsSchema {
 			.liveTranscriptionChunkSize,
 			keyPath: \.liveTranscriptionChunkSize,
 			default: defaults.liveTranscriptionChunkSize
+		).eraseToAny(),
+		SettingsField(
+			.liveHoldHotkey,
+			keyPath: \.liveHoldHotkey,
+			default: defaults.liveHoldHotkey,
+			encode: { container, key, value in
+				try container.encodeIfPresent(value, forKey: key)
+			}
+		).eraseToAny(),
+		SettingsField(
+			.liveDoubleTapHotkey,
+			keyPath: \.liveDoubleTapHotkey,
+			default: defaults.liveDoubleTapHotkey,
+			encode: { container, key, value in
+				try container.encodeIfPresent(value, forKey: key)
+			}
+		).eraseToAny(),
+		SettingsField(
+			.batchHoldHotkey,
+			keyPath: \.batchHoldHotkey,
+			default: defaults.batchHoldHotkey,
+			encode: { container, key, value in
+				try container.encodeIfPresent(value, forKey: key)
+			}
+		).eraseToAny(),
+		SettingsField(
+			.batchDoubleTapHotkey,
+			keyPath: \.batchDoubleTapHotkey,
+			default: defaults.batchDoubleTapHotkey,
+			encode: { container, key, value in
+				try container.encodeIfPresent(value, forKey: key)
+			}
 		).eraseToAny()
 	]
 }
