@@ -129,6 +129,10 @@ struct GeneralSectionView: View {
 							.pickerStyle(.menu)
 							.fixedSize()
 						}
+
+						Divider()
+
+						liveModelStatusView
 					}
 				}
 			} icon: {
@@ -139,4 +143,65 @@ struct GeneralSectionView: View {
 		}
 		.enableInjection()
 	}
+
+	@ViewBuilder
+	private var liveModelStatusView: some View {
+		VStack(alignment: .leading, spacing: 6) {
+			if store.isLiveModelDownloading {
+				HStack(spacing: 8) {
+					ProgressView(value: store.liveModelDownloadProgress)
+						.progressViewStyle(.linear)
+					Text(progressText)
+						.font(.caption.monospacedDigit())
+						.foregroundStyle(.secondary)
+						.frame(width: 56, alignment: .trailing)
+				}
+				Text("Downloading the streaming EOU model. This is a one-time \(humanModelSize) download.")
+					.settingsCaption()
+			} else if store.isLiveModelReady {
+				HStack(spacing: 8) {
+					Image(systemName: "checkmark.circle.fill")
+						.foregroundStyle(.green)
+					Text("Streaming model installed")
+						.font(.body)
+					Spacer()
+				}
+			} else {
+				HStack(spacing: 8) {
+					Image(systemName: "arrow.down.circle")
+						.foregroundStyle(.secondary)
+					Text("Streaming model not yet downloaded")
+						.font(.body)
+					Spacer()
+					Button {
+						store.send(.downloadLiveModel)
+					} label: {
+						Text("Download Model")
+					}
+					.buttonStyle(.borderedProminent)
+					.controlSize(.small)
+				}
+				Text("About \(humanModelSize). Required for live transcription. The standard Hex transcription model is unaffected.")
+					.settingsCaption()
+			}
+
+			if let errorMessage = store.liveModelError {
+				Label {
+					Text(errorMessage)
+						.font(.caption)
+						.foregroundStyle(.red)
+				} icon: {
+					Image(systemName: "exclamationmark.triangle.fill")
+						.foregroundStyle(.red)
+				}
+			}
+		}
+	}
+
+	private var progressText: String {
+		let pct = Int((store.liveModelDownloadProgress * 100).rounded())
+		return "\(pct)%"
+	}
+
+	private var humanModelSize: String { "~250 MB" }
 }

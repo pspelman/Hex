@@ -59,6 +59,12 @@ struct SettingsFeature {
     var modelDownload = ModelDownloadFeature.State()
     var shouldFlashModelSection = false
 
+    // Live transcription model
+    var isLiveModelReady: Bool = false
+    var isLiveModelDownloading: Bool = false
+    var liveModelDownloadProgress: Double = 0
+    var liveModelError: String?
+
   }
 
   enum Action: BindableAction {
@@ -88,6 +94,11 @@ struct SettingsFeature {
     // Live transcription
     case setLiveTranscriptionEnabled(Bool)
     case setLiveTranscriptionChunkSize(LiveTranscriptionChunkSize)
+    case checkLiveModelReady
+    case liveModelReadyEvaluated(Bool)
+    case downloadLiveModel
+    case liveModelDownloadProgressUpdated(Double)
+    case liveModelDownloadFinished(Bool, String?)
 
     // Permission delegation (forwarded to AppFeature)
     case requestMicrophone
@@ -126,6 +137,7 @@ struct SettingsFeature {
   @Dependency(\.permissions) var permissions
   @Dependency(\.soundEffects) var soundEffects
   @Dependency(\.transcriptPersistence) var transcriptPersistence
+  @Dependency(\.streamingTranscription) var streamingTranscription
 
   private func deleteAudioEffect(for transcripts: [Transcript]) -> Effect<Action> {
     .run { [transcriptPersistence] _ in
@@ -262,6 +274,7 @@ struct SettingsFeature {
 
           await send(.modelDownload(.fetchModels))
           await send(.loadAvailableInputDevices)
+          await send(.checkLiveModelReady)
 
           // Set up periodic refresh of available devices (every 120 seconds)
           // Using a longer interval to reduce resource usage
@@ -514,10 +527,50 @@ struct SettingsFeature {
 
       case let .setLiveTranscriptionEnabled(enabled):
         state.$hexSettings.withLock { $0.liveTranscriptionEnabled = enabled }
-        return .none
+        return enabled ? .send(.checkLiveModelReady) : .none
 
       case let .setLiveTranscriptionChunkSize(chunkSize):
         state.$hexSettings.withLock { $0.liveTranscriptionChunkSize = chunkSize }
+        return .send(.checkLiveModelReady)
+
+      case .checkLiveModelReady:
+        let chunkSize = state.hexSettings.liveTranscriptionChunkSize
+        return .run { [streamingTranscription] send in
+          let ready = await streamingTranscription.isModelAvailable(chunkSize)
+          await send(.liveModelReadyEvaluated(ready))
+        }
+
+      case let .liveModelReadyEvaluated(ready):
+        state.isLiveModelReady = ready
+        if ready { state.liveModelError = nil }
+        return .none
+
+      case .downloadLiveModel:
+        guard !state.isLiveModelDownloading else { return .none }
+        state.isLiveModelDownloading = true
+        state.liveModelDownloadProgress = 0
+        state.liveModelError = nil
+        let chunkSize = state.hexSettings.liveTranscriptionChunkSize
+        return .run { [streamingTranscription] send in
+          do {
+            try await streamingTranscription.ensureLoaded(chunkSize) { progress in
+              Task { await send(.liveModelDownloadProgressUpdated(progress.fractionCompleted)) }
+            }
+            await send(.liveModelDownloadFinished(true, nil))
+          } catch {
+            await send(.liveModelDownloadFinished(false, error.localizedDescription))
+          }
+        }
+
+      case let .liveModelDownloadProgressUpdated(progress):
+        state.liveModelDownloadProgress = progress
+        return .none
+
+      case let .liveModelDownloadFinished(success, errorMessage):
+        state.isLiveModelDownloading = false
+        state.isLiveModelReady = success
+        state.liveModelError = errorMessage
+        if success { state.liveModelDownloadProgress = 1 }
         return .none
 
       // Permission requests
