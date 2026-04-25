@@ -148,6 +148,7 @@ struct SettingsFeature {
   }
 
   private func beginCapture(_ target: HotKeyCaptureTarget, state: inout State) {
+    settingsLogger.notice("HotKey capture begin target=\(String(describing: target), privacy: .public)")
     switch target {
     case .recording:
       state.$isSettingHotKey.withLock { $0 = true }
@@ -159,6 +160,7 @@ struct SettingsFeature {
   }
 
   private func endCapture(_ target: HotKeyCaptureTarget, state: inout State) {
+    settingsLogger.notice("HotKey capture end target=\(String(describing: target), privacy: .public)")
     switch target {
     case .recording:
       state.$isSettingHotKey.withLock { $0 = false }
@@ -203,6 +205,8 @@ struct SettingsFeature {
   }
 
   private func handleCapture(_ keyEvent: KeyEvent, for target: HotKeyCaptureTarget, state: inout State) -> Effect<Action> {
+    settingsLogger.notice("HotKey capture event target=\(String(describing: target), privacy: .public) key=\(String(describing: keyEvent.key), privacy: .public) modifiers=\(String(describing: keyEvent.modifiers), privacy: .public)")
+
     if keyEvent.key == .escape {
       endCapture(target, state: &state)
       return .none
@@ -221,7 +225,11 @@ struct SettingsFeature {
       return .none
     }
 
-    if target == .recording, keyEvent.modifiers.isEmpty {
+    // Only finalize a modifier-only capture once the user has actually pressed at least one
+    // modifier. Without this guard, a stray flagsChanged event arriving with empty modifiers
+    // (e.g. caps lock toggling, or releasing a key that was already held when capture started)
+    // would immediately end the session and persist an empty hotkey.
+    if target == .recording, keyEvent.modifiers.isEmpty, !updatedModifiers.isEmpty {
       applyCapturedHotKey(key: nil, modifiers: updatedModifiers, for: target, state: &state)
       endCapture(target, state: &state)
     }
@@ -259,7 +267,7 @@ struct SettingsFeature {
         }
 
         // Listen for key events and load microphones (existing + new)
-        return .run { send in
+        return .run { [keyEventMonitor] send in
           func audioPropertyAddress(
             _ selector: AudioObjectPropertySelector,
             scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal,
@@ -270,6 +278,21 @@ struct SettingsFeature {
               mScope: scope,
               mElement: element
             )
+          }
+
+          // Subscribe to key events FIRST, before any other setup, so a user who
+          // immediately taps the HotKey capture area never races the audio-device
+          // configuration below.
+          let keyEventListenerTask = Task { [keyEventMonitor] in
+            settingsLogger.notice("HotKey capture listener subscribing")
+            do {
+              for try await keyEvent in await keyEventMonitor.listenForKeyPress() {
+                await send(.keyEvent(keyEvent))
+              }
+              settingsLogger.notice("HotKey capture listener stream closed")
+            } catch {
+              settingsLogger.error("HotKey capture listener errored: \(error.localizedDescription, privacy: .public)")
+            }
           }
 
           await send(.modelDownload(.fetchModels))
@@ -359,6 +382,8 @@ struct SettingsFeature {
 
           // Be sure to clean up resources when the task is finished
           defer {
+            keyEventListenerTask.cancel()
+            deviceRefreshTask.cancel()
             deviceUpdateTask?.cancel()
             NotificationCenter.default.removeObserver(deviceConnectionObserver)
             NotificationCenter.default.removeObserver(deviceDisconnectionObserver)
@@ -379,11 +404,15 @@ struct SettingsFeature {
             }
           }
 
-          for try await keyEvent in await keyEventMonitor.listenForKeyPress() {
-            await send(.keyEvent(keyEvent))
+          // Park the effect: outer cleanup runs when this Task is cancelled by SwiftUI's
+          // .task lifecycle. The key event listener runs concurrently in its own Task.
+          await withTaskCancellationHandler {
+            while !Task.isCancelled {
+              try? await Task.sleep(for: .seconds(60))
+            }
+          } onCancel: {
+            keyEventListenerTask.cancel()
           }
-          
-          deviceRefreshTask.cancel()
         }
 
       case .startSettingHotKey:

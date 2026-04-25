@@ -85,7 +85,12 @@ private actor StateActor {
     // Idempotency: nothing to do
     guard newFullText != lastRendered else { return }
 
-    guard let source = CGEventSource(stateID: .combinedSessionState) else {
+    // Use `.privateState` so the source does NOT inherit the user's currently-held modifier
+    // keys. Live transcription is always invoked while the user is holding their hotkey
+    // (commonly modifier-only chords like Option+Ctrl+Shift). With `.combinedSessionState`,
+    // every synthesized character carries those modifier flags and the focused app
+    // interprets each keystroke as an unbound shortcut and silently drops it.
+    guard let source = CGEventSource(stateID: .privateState) else {
       throw CGEventTextInjector.CGEventTextInjectorError.eventSourceUnavailable
     }
 
@@ -132,50 +137,50 @@ private actor StateActor {
   // MARK: CGEvent helpers
 
   /// Post a single backspace key-down + key-up pair.
+  ///
+  /// `flags` is explicitly cleared on each event so the user's physically-held hotkey
+  /// modifiers don't combine with the synthetic backspace (which would turn it into
+  /// Option+Backspace = "delete word", etc.).
   private func postBackspace(source: CGEventSource) {
     let down = CGEvent(keyboardEventSource: source, virtualKey: Self.backspaceKeyCode, keyDown: true)
     let up = CGEvent(keyboardEventSource: source, virtualKey: Self.backspaceKeyCode, keyDown: false)
+    down?.flags = []
+    up?.flags = []
     down?.post(tap: .cghidEventTap)
     up?.post(tap: .cghidEventTap)
   }
 
-  /// Post Unicode key events for the entire suffix string.
+  /// Post the entire suffix as a *single* multi-character Unicode key event.
   ///
-  /// Each Swift `Character` is posted as a keyDown+keyUp pair using
-  /// `keyboardSetUnicodeString`, which handles multi-scalar grapheme clusters correctly.
-  /// Burst mode skips the inter-event sleep for short suffixes to reduce latency.
+  /// `keyboardSetUnicodeString` accepts a UTF-16 buffer of any length, and posting one
+  /// event with the whole suffix avoids per-character autocomplete pop-ups (VS Code
+  /// IntelliSense, Slack `@` mentions, Xcode completion, etc.) that intercept a few
+  /// characters mid-typing. With per-char posting, IntelliSense triggers on the first
+  /// matching prefix and eats the rest of the suffix; one combined event lands as a
+  /// single text-input transaction so any popup only triggers after all chars are in.
+  ///
+  /// The `burst` parameter is retained for API stability but is now a no-op — there's
+  /// only one event to post regardless of suffix length.
   private func postUnicodeString(_ text: String, source: CGEventSource, burst: Bool) async {
-    for character in text {
-      // Encode the character as UTF-16 code units (required by keyboardSetUnicodeString)
-      let utf16 = Array(character.utf16)
-      let length = utf16.count
+    guard !text.isEmpty else { return }
 
-      let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
-      let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+    let utf16 = Array(text.utf16)
+    let length = utf16.count
 
-      utf16.withUnsafeBufferPointer { buffer in
-        down?.keyboardSetUnicodeString(stringLength: length, unicodeString: buffer.baseAddress)
-        up?.keyboardSetUnicodeString(stringLength: length, unicodeString: buffer.baseAddress)
-      }
+    let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
+    let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+    // Clear modifier flags — see `postBackspace` for the full reasoning. Without this,
+    // synthesized text becomes <held-modifiers>+<chars> and is dropped as a shortcut.
+    down?.flags = []
+    up?.flags = []
 
-      down?.post(tap: .cghidEventTap)
-      up?.post(tap: .cghidEventTap)
-
-      // Pace non-burst events to avoid coalescing in apps with fast-typing guards.
-      // The actor suspends here which is safe: the Task that called apply() suspends,
-      // and no other actor caller can interleave during this wait because actor reentrancy
-      // only occurs at suspension points with no competing callers to the same actor.
-      //
-      // NOTE: If an apply() is called while we are sleeping here, it will queue behind
-      // the current invocation. The CompositeTextInjector's generation check prevents
-      // stale intents from executing after a session ends, but within a session, rapid
-      // concurrent applies may still queue. The upstream ReconciliationEngine's coalesce
-      // policy should prevent this in practice.
-      if !burst {
-        // 1ms sleep keeps inter-event pacing without visible latency
-        try? await Task.sleep(nanoseconds: 1_000_000)
-      }
+    utf16.withUnsafeBufferPointer { buffer in
+      down?.keyboardSetUnicodeString(stringLength: length, unicodeString: buffer.baseAddress)
+      up?.keyboardSetUnicodeString(stringLength: length, unicodeString: buffer.baseAddress)
     }
+
+    down?.post(tap: .cghidEventTap)
+    up?.post(tap: .cghidEventTap)
   }
 
   // MARK: State reset

@@ -260,7 +260,7 @@ actor StreamingTranscriptionClientLive {
   // MARK: - cancelSession
 
   func cancelSession() async {
-    guard let m = manager else { return }
+    guard manager != nil else { return }
 
     let continuation = streamContinuation
     manager = nil
@@ -269,7 +269,16 @@ actor StreamingTranscriptionClientLive {
     lastEmittedPartial = ""
 
     logger.notice("Cancelling streaming ASR session (no finalize emitted)")
-    await m.reset()
+    // Intentionally NOT calling `m.reset()`. When cancelSession is invoked because a
+    // new session is being started (`startSession` -> auto-cleanup path), the previous
+    // session's buffer drain task may still have an in-flight `m.process(buffer)`
+    // suspended at FluidAudio's internal `await processChunkAndDecode` point. Calling
+    // `m.reset()` here clears `m.audioBuffer` while that suspended `process()` resumes
+    // into a `removeFirst(shiftSamples)` on an empty buffer — Swift precondition crash
+    // (`RangeReplaceableCollection.swift:596: Can't remove more items...`).
+    //
+    // Since we drop the only strong reference to `m` above, it deinits naturally once
+    // its in-flight work completes. No reset needed.
     continuation?.finish()
   }
 
@@ -364,22 +373,27 @@ private extension LiveTranscriptionChunkSize {
     switch self {
     case .ms160: return .ms160
     case .ms320: return .ms320
+    case .ms1600: return .ms1600
     }
   }
 
   /// Subfolder name produced by `DownloadUtils.downloadRepo` for this chunk size.
+  ///
+  /// `ms1600` reuses the `320ms` model bundle (same weights, different streaming config) —
+  /// FluidAudio's own CLI does the same redirect (`ParakeetEouCommand.swift:184`).
   var subfolderName: String {
     switch self {
     case .ms160: return "160ms"
-    case .ms320: return "320ms"
+    case .ms320, .ms1600: return "320ms"
     }
   }
 
   /// FluidAudio `Repo` identifier used to download the EOU model for this chunk size.
+  /// `ms1600` reuses the 320ms repo — see `subfolderName` for context.
   var repo: Repo {
     switch self {
     case .ms160: return .parakeetEou160
-    case .ms320: return .parakeetEou320
+    case .ms320, .ms1600: return .parakeetEou320
     }
   }
 }

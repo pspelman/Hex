@@ -82,7 +82,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		wordRemovals: [WordRemoval] = HexSettings.defaultWordRemovals,
 		wordRemappings: [WordRemapping] = [],
 		liveTranscriptionEnabled: Bool = false,
-		liveTranscriptionChunkSize: LiveTranscriptionChunkSize = .ms320
+		liveTranscriptionChunkSize: LiveTranscriptionChunkSize = .ms1600
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume

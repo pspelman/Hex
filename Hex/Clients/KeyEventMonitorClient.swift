@@ -90,11 +90,17 @@ extension DependencyValues {
 }
 
 class KeyEventMonitorClientLive {
+  /// Cached at startup — the CGEvent tap callback consults this on every event to filter
+  /// out events synthesized by `CGEventTextInjector` so live-transcription writes don't
+  /// feed back into the hotkey state machine. Calling `getpid()` is cheap, but caching
+  /// avoids any doubt about call-site cost in a hot path.
+  fileprivate static let ownProcessIdentifier: pid_t = ProcessInfo.processInfo.processIdentifier
+
   private var eventTapPort: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
   private var continuations: [UUID: @Sendable (KeyEvent) -> Bool] = [:]
   private var inputContinuations: [UUID: @Sendable (InputEvent) -> Bool] = [:]
-  private let queue = DispatchQueue(label: "com.kitlangton.Hex.KeyEventMonitor", attributes: .concurrent)
+  private let queue = DispatchQueue(label: "com.pspelman.Hex.KeyEventMonitor", attributes: .concurrent)
   private var isMonitoring = false
   private var wantsMonitoring = false
   private var accessibilityTrusted = false
@@ -394,6 +400,18 @@ class KeyEventMonitorClientLive {
           }
 
           guard hotKeyClientLive.hasRequiredPermissions else {
+            return Unmanaged.passUnretained(cgEvent)
+          }
+
+          // Filter out events we synthesized ourselves (CGEventTextInjector posting
+          // backspace + unicode key events for live transcription). Without this guard,
+          // our own posted keystrokes are seen by HotKeyProcessor as "modifiers just
+          // released" (since they carry flags=[]), which immediately fires stopRecording
+          // and tears the live session down mid-utterance. Compare the event's source PID
+          // to our own; events posted from inside this process carry our PID, hardware
+          // events come from launchd / WindowServer / etc.
+          let eventSourcePid = cgEvent.getIntegerValueField(.eventSourceUnixProcessID)
+          if eventSourcePid == Int64(KeyEventMonitorClientLive.ownProcessIdentifier) {
             return Unmanaged.passUnretained(cgEvent)
           }
 

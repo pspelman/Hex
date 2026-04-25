@@ -96,7 +96,7 @@ After first release, update `hex.rb`:
 
 ```bash
 # Get SHA256
-curl -L https://github.com/kitlangton/Hex/releases/download/v0.2.12/Hex-v0.2.12.zip -o Hex.zip
+curl -L https://github.com/pspelman/Hex/releases/download/v0.2.12/Hex-v0.2.12.zip -o Hex.zip
 shasum -a 256 Hex.zip
 
 # Update hex.rb with version and SHA

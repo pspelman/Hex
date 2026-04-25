@@ -121,7 +121,8 @@ struct GeneralSectionView: View {
 							set: { store.send(.setLiveTranscriptionChunkSize($0)) }
 						)) {
 							Text("160 ms (lowest latency)").tag(LiveTranscriptionChunkSize.ms160)
-							Text("320 ms (more accurate)").tag(LiveTranscriptionChunkSize.ms320)
+							Text("320 ms (balanced)").tag(LiveTranscriptionChunkSize.ms320)
+							Text("1600 ms (highest accuracy)").tag(LiveTranscriptionChunkSize.ms1600)
 						} label: {
 							Text("Chunk Size")
 								.lineLimit(1)

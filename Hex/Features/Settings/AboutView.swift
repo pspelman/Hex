@@ -37,13 +37,13 @@ struct AboutView: View {
                 HStack {
                     Label("Hex is open source", systemImage: "apple.terminal.on.rectangle")
                     Spacer()
-                    Link("Visit our GitHub", destination: URL(string: "https://github.com/kitlangton/Hex/")!)
+                    Link("Visit our GitHub", destination: URL(string: "https://github.com/pspelman/Hex/")!)
                 }
                 
                 HStack {
                     Label("Support the developer", systemImage: "heart")
                     Spacer()
-                    Link("Become a Sponsor", destination: URL(string: "https://github.com/sponsors/kitlangton")!)
+                    Link("Become a Sponsor", destination: URL(string: "https://github.com/sponsors/pspelman")!)
                 }
             }
         }

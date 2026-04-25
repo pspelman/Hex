@@ -91,7 +91,7 @@ The app uses **The Composable Architecture (TCA)** for state management and is s
 - **WhisperKit**: Core ML transcription (tracking main branch)
 - **FluidAudio (Parakeet)**: Core ML ASR (multilingual) default model
 - **Sauce**: Keyboard event monitoring
-- **Sparkle**: Auto-updates (feed: https://hex-updates.s3.amazonaws.com/appcast.xml)
+- **Sparkle**: Auto-updates (feed URL stripped from Info.plist; this fork ships personally and does not auto-update. Re-add `SUFeedURL` + `SUPublicEDKey` when ready to ship.)
 - **Swift Composable Architecture**: State management
 - **Inject** Hot Reloading for SwiftUI
 
@@ -122,10 +122,10 @@ The app uses **The Composable Architecture (TCA)** for state management and is s
 ### Storage Locations
 
 - WhisperKit models
-  - `~/Library/Application Support/com.kitlangton.Hex/models/argmaxinc/whisperkit-coreml/<model>`
+  - `~/Library/Application Support/com.pspelman.Hex/models/argmaxinc/whisperkit-coreml/<model>`
 - Parakeet (FluidAudio)
   - We set `XDG_CACHE_HOME` on launch so Parakeet caches under the app container:
-  - `~/Library/Containers/com.kitlangton.Hex/Data/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3-coreml`
+  - `~/Library/Containers/com.pspelman.Hex/Data/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3-coreml`
   - Legacy `~/.cache/fluidaudio/Models/…` is not visible to the sandbox; re‑download or import.
 
 ### Progress + Availability
@@ -156,7 +156,7 @@ The app uses **The Composable Architecture (TCA)** for state management and is s
 Set at app launch and logged:
 
 ```
-XDG_CACHE_HOME = ~/Library/Containers/com.kitlangton.Hex/Data/Library/Application Support/com.kitlangton.Hex/cache
+XDG_CACHE_HOME = ~/Library/Containers/com.pspelman.Hex/Data/Library/Application Support/com.pspelman.Hex/cache
 ```
 
 FluidAudio models reside under `Application Support/FluidAudio/Models`.

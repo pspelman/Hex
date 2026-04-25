@@ -19,6 +19,7 @@
 //
 
 import AppKit
+import AVFoundation
 import ComposableArchitecture
 import Foundation
 import HexCore
@@ -138,6 +139,11 @@ struct LiveTranscriptionFeature {
           state.lastError = "Live transcription model is downloading…"
           return .send(.downloadModel)
         }
+        // Claim isLive synchronously here, not in `.startLiveSession`. Without this,
+        // a fast release races: hotKeyReleased's reducer is processed before
+        // startLiveSession is, sees isLive==false, and bails — leaving an unkillable
+        // session that gets fully set up by the still-running effect.
+        state.isLive = true
         return .send(.startLiveSession)
 
       case .hotKeyReleased:
@@ -182,13 +188,32 @@ struct LiveTranscriptionFeature {
           }
 
           // --- 3. Start the audio capture tap ---
+          //
+          // Buffers must be fed to FluidAudio's StreamingEouAsrManager strictly serially.
+          // Its `process(audioBuffer:)` is an actor method that awaits an inner
+          // `processChunkAndDecode`, which releases the actor lock; if a second `process()`
+          // call interleaves there, both end up calling `audioBuffer.removeFirst(shiftSamples)`
+          // back-to-back and the second pops past the buffer's end (Swift precondition failure
+          // in RangeReplaceableCollection). We funnel the capture callback through an
+          // AsyncStream and drain it from a single task to enforce that invariant.
+          let (bufferStream, bufferContinuation) = AsyncStream<AVAudioPCMBuffer>.makeStream(
+            bufferingPolicy: .unbounded
+          )
+
           do {
             try await recording.startLiveCapture { buffer in
-              Task { await streamingTranscription.pushAudioBuffer(buffer) }
+              bufferContinuation.yield(buffer)
             }
           } catch {
+            bufferContinuation.finish()
             await send(.streamError(EquatableError(error)))
             return
+          }
+
+          let bufferDrainTask = Task { [streamingTranscription] in
+            for await buffer in bufferStream {
+              await streamingTranscription.pushAudioBuffer(buffer)
+            }
           }
 
           // --- 4. Drain the event stream through the engine into the injector ---
@@ -198,7 +223,9 @@ struct LiveTranscriptionFeature {
             await send(.streamEvent(event))
           }
 
-          // --- 5. Stream closed — commit end-of-session commands ---
+          // --- 5. Stream closed — stop accepting buffers and finalize ---
+          bufferContinuation.finish()
+          _ = await bufferDrainTask.value
           let endCommands = await engine.endSession()
           await applyCommands(endCommands, via: textInjection)
           await send(.streamFinished)
@@ -387,8 +414,12 @@ private extension LiveTranscriptionFeature {
             return true
 
           case .discard:
-            // Live mode has no discard concept — the user spoke; the model emitted.
-            // Let the event pass through without intercepting.
+            // A `.discard` here means the user pressed and released within the
+            // modifier-only threshold (~0.3 s) — too fast to be a real press-and-hold.
+            // We still fired hotKeyPressed on the press, so a session may be mid-setup.
+            // Send hotKeyReleased to terminate it cleanly. Without this, the session
+            // runs unattended forever because no later release will arrive.
+            Task { await send(.hotKeyReleased) }
             return false
 
           case .none:
