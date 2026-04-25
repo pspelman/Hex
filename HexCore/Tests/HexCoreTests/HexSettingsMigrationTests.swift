@@ -125,6 +125,16 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(settings.batchDoubleTapHotkey, HotKey(key: nil, modifiers: [.option]))
 	}
 
+	func testV1FixtureFallsBackToFourSlotDefaultsForNewFields() throws {
+		let data = try loadFixture(named: "v1")
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
+
+		XCTAssertNil(decoded.liveHoldHotkey)
+		XCTAssertNil(decoded.liveDoubleTapHotkey)
+		XCTAssertEqual(decoded.batchHoldHotkey, HotKey(key: nil, modifiers: [.option]))
+		XCTAssertEqual(decoded.batchDoubleTapHotkey, HotKey(key: nil, modifiers: [.option]))
+	}
+
 	private func loadFixture(named name: String) throws -> Data {
 		guard let url = Bundle.module.url(
 			forResource: name,
