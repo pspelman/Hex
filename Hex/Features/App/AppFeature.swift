@@ -23,6 +23,7 @@ struct AppFeature {
 	@ObservableState
 	struct State {
 		var transcription: TranscriptionFeature.State = .init()
+		var liveTranscription: LiveTranscriptionFeature.State = .init()
 		var settings: SettingsFeature.State = .init()
 		var history: HistoryFeature.State = .init()
 		var activeTab: ActiveTab = .settings
@@ -38,6 +39,7 @@ struct AppFeature {
   enum Action: BindableAction {
     case binding(BindingAction<State>)
     case transcription(TranscriptionFeature.Action)
+    case liveTranscription(LiveTranscriptionFeature.Action)
     case settings(SettingsFeature.Action)
     case history(HistoryFeature.Action)
     case setActiveTab(ActiveTab)
@@ -66,6 +68,10 @@ struct AppFeature {
       TranscriptionFeature()
     }
 
+    Scope(state: \.liveTranscription, action: \.liveTranscription) {
+      LiveTranscriptionFeature()
+    }
+
     Scope(state: \.settings, action: \.settings) {
       SettingsFeature()
     }
@@ -83,7 +89,8 @@ struct AppFeature {
         return .merge(
           startPasteLastTranscriptMonitoring(),
           ensureSelectedModelReadiness(),
-          startPermissionMonitoring()
+          startPermissionMonitoring(),
+          .send(.liveTranscription(.task))
         )
         
       case .pasteLastTranscript:
@@ -109,6 +116,9 @@ struct AppFeature {
         }
 
       case .transcription:
+        return .none
+
+      case .liveTranscription:
         return .none
 
       case .settings:

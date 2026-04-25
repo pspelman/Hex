@@ -47,6 +47,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var wordRemovalsEnabled: Bool
 	public var wordRemovals: [WordRemoval]
 	public var wordRemappings: [WordRemapping]
+	public var liveTranscriptionEnabled: Bool
+	public var liveTranscriptionChunkSize: LiveTranscriptionChunkSize
 
 	private mutating func normalizeDoubleTapSettings() {
 		if !doubleTapLockEnabled {
@@ -78,7 +80,9 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		hasCompletedStorageMigration: Bool = false,
 		wordRemovalsEnabled: Bool = false,
 		wordRemovals: [WordRemoval] = HexSettings.defaultWordRemovals,
-		wordRemappings: [WordRemapping] = []
+		wordRemappings: [WordRemapping] = [],
+		liveTranscriptionEnabled: Bool = false,
+		liveTranscriptionChunkSize: LiveTranscriptionChunkSize = .ms320
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -104,6 +108,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.wordRemovalsEnabled = wordRemovalsEnabled
 		self.wordRemovals = wordRemovals
 		self.wordRemappings = wordRemappings
+		self.liveTranscriptionEnabled = liveTranscriptionEnabled
+		self.liveTranscriptionChunkSize = liveTranscriptionChunkSize
 		normalizeDoubleTapSettings()
 	}
 
@@ -152,6 +158,8 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case wordRemovalsEnabled
 	case wordRemovals
 	case wordRemappings
+	case liveTranscriptionEnabled
+	case liveTranscriptionChunkSize
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -284,6 +292,16 @@ private enum HexSettingsSchema {
 			.wordRemappings,
 			keyPath: \.wordRemappings,
 			default: defaults.wordRemappings
+		).eraseToAny(),
+		SettingsField(
+			.liveTranscriptionEnabled,
+			keyPath: \.liveTranscriptionEnabled,
+			default: defaults.liveTranscriptionEnabled
+		).eraseToAny(),
+		SettingsField(
+			.liveTranscriptionChunkSize,
+			keyPath: \.liveTranscriptionChunkSize,
+			default: defaults.liveTranscriptionChunkSize
 		).eraseToAny()
 	]
 }

@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import ComposableArchitecture
 import Foundation
 import Testing
@@ -64,6 +65,36 @@ struct RecordingRaceTests {
     #expect(counts.startCalls == 2)
     #expect(counts.stopCalls == 1)
     #expect(FileManager.default.fileExists(atPath: stopURL.path))
+  }
+
+  // MARK: - Live capture hook
+
+  /// Verifies that `beginLiveCapture`/`endLiveCapture` toggle `isLiveCaptureActive`
+  /// correctly, and that `endLiveCapture` is idempotent.
+  ///
+  /// This test exercises only the queue-protected callback property — it does not start
+  /// an `AVAudioEngine`, so no microphone permission is required.
+  @Test
+  func liveCaptureActiveTogglesWithCallback() async throws {
+    let (meterStream, meterContinuation) = AsyncStream<Meter>.makeStream()
+    _ = meterStream
+    let controller = SuperFastCaptureController(meterContinuation: meterContinuation)
+
+    #expect(controller.isLiveCaptureActive == false)
+
+    controller.beginLiveCapture(onBuffer: { _ in })
+    // `beginLiveCapture` dispatches async onto processingQueue; yield to let it land.
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(controller.isLiveCaptureActive == true)
+
+    controller.endLiveCapture()
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(controller.isLiveCaptureActive == false)
+
+    // Idempotent: second `endLiveCapture` must not crash or set state incorrectly.
+    controller.endLiveCapture()
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(controller.isLiveCaptureActive == false)
   }
 
   @Test

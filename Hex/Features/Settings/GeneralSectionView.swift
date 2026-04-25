@@ -102,6 +102,38 @@ struct GeneralSectionView: View {
 			} icon: {
 				Image(systemName: "speaker.wave.2")
 			}
+
+			Label {
+				VStack(alignment: .leading, spacing: 6) {
+					Toggle(
+						"Live Transcription (experimental)",
+						isOn: Binding(
+							get: { store.hexSettings.liveTranscriptionEnabled },
+							set: { store.send(.setLiveTranscriptionEnabled($0)) }
+						)
+					)
+					Text("Stream text into the focused field as you speak. Requires a separate ~250 MB model download and Accessibility permission.")
+						.settingsCaption()
+
+					if store.hexSettings.liveTranscriptionEnabled {
+						HStack {
+							Text("Chunk Size")
+							Spacer()
+							Picker("", selection: Binding(
+								get: { store.hexSettings.liveTranscriptionChunkSize },
+								set: { store.send(.setLiveTranscriptionChunkSize($0)) }
+							)) {
+								Text("160 ms (lowest latency)").tag(LiveTranscriptionChunkSize.ms160)
+								Text("320 ms (more accurate)").tag(LiveTranscriptionChunkSize.ms320)
+							}
+							.pickerStyle(.menu)
+							.fixedSize()
+						}
+					}
+				}
+			} icon: {
+				Image(systemName: "waveform.badge.mic")
+			}
 		} header: {
 			Text("General")
 		}

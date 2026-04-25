@@ -172,6 +172,11 @@ private extension TranscriptionFeature {
           return false
         }
 
+        // Defer to LiveTranscriptionFeature when live mode is enabled.
+        if hexSettings.liveTranscriptionEnabled {
+          return false
+        }
+
         // Always keep hotKeyProcessor in sync with current user hotkey preference
         hotKeyProcessor.hotkey = hexSettings.hotkey
         let useDoubleTapOnly = hexSettings.doubleTapLockEnabled && hexSettings.useDoubleTapOnly

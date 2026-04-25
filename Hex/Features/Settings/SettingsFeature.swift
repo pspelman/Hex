@@ -85,6 +85,10 @@ struct SettingsFeature {
     case setSoundEffectsEnabled(Bool)
     case setSoundEffectsVolume(Double)
 
+    // Live transcription
+    case setLiveTranscriptionEnabled(Bool)
+    case setLiveTranscriptionChunkSize(LiveTranscriptionChunkSize)
+
     // Permission delegation (forwarded to AppFeature)
     case requestMicrophone
     case requestAccessibility
@@ -506,6 +510,14 @@ struct SettingsFeature {
 
       case let .setSoundEffectsVolume(volume):
         state.$hexSettings.withLock { $0.soundEffectsVolume = volume }
+        return .none
+
+      case let .setLiveTranscriptionEnabled(enabled):
+        state.$hexSettings.withLock { $0.liveTranscriptionEnabled = enabled }
+        return .none
+
+      case let .setLiveTranscriptionChunkSize(chunkSize):
+        state.$hexSettings.withLock { $0.liveTranscriptionChunkSize = chunkSize }
         return .none
 
       // Permission requests

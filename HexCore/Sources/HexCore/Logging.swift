@@ -16,9 +16,11 @@ public enum HexLog {
     case hotKey = "HotKey"
     case keyEvent = "KeyEvent"
     case parakeet = "Parakeet"
+    case streamingASR = "StreamingASR"
     case history = "History"
     case settings = "Settings"
     case permissions = "Permissions"
+    case injection = "Injection"
   }
 
   public static func logger(_ category: Category) -> os.Logger {
@@ -36,7 +38,9 @@ public enum HexLog {
   public static let hotKey = logger(.hotKey)
   public static let keyEvent = logger(.keyEvent)
   public static let parakeet = logger(.parakeet)
+  public static let streamingASR = logger(.streamingASR)
   public static let history = logger(.history)
   public static let settings = logger(.settings)
   public static let permissions = logger(.permissions)
+  public static let injection = logger(.injection)
 }

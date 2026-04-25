@@ -34,6 +34,13 @@ struct RecordingClient {
   var getDefaultInputDeviceName: @Sendable () async -> String? = { nil }
   var warmUpRecorder: @Sendable () async -> Void = {}
   var cleanup: @Sendable () async -> Void = {}
+  /// Starts the capture engine (if not already running) and attaches a per-buffer callback
+  /// for live-transcription mode. Does not open a recording file, does not pause media,
+  /// does not mute volume. Safe to call while a file recording is also active.
+  var startLiveCapture: @Sendable (_ onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) async throws -> Void = { _ in }
+  /// Detaches the live-capture callback and, in standard mode with no active file recording,
+  /// stops the capture engine to release the audio hardware.
+  var stopLiveCapture: @Sendable () async -> Void = {}
 }
 
 extension RecordingClient: DependencyKey {
@@ -50,7 +57,9 @@ extension RecordingClient: DependencyKey {
       getAvailableInputDevices: { await live.getAvailableInputDevices() },
       getDefaultInputDeviceName: { await live.getDefaultInputDeviceName() },
       warmUpRecorder: { await live.warmUpRecorder() },
-      cleanup: { await live.cleanup() }
+      cleanup: { await live.cleanup() },
+      startLiveCapture: { onBuffer in try await live.startLiveCapture(onBuffer: onBuffer) },
+      stopLiveCapture: { await live.stopLiveCapture() }
     )
   }
 }
@@ -355,6 +364,9 @@ actor RecordingClientLive {
   private var isObservingSystemChanges = false
 
   @Shared(.hexSettings) var hexSettings: HexSettings
+
+  /// Timestamp from the most recent `startLiveCapture` call; used to log session duration.
+  private var liveCaptureStartedAt: Date?
 
   /// Tracks whether media was paused using the media key when recording started.
   private var didPauseMedia: Bool = false
@@ -1139,6 +1151,43 @@ actor RecordingClientLive {
       recordingLogger.error("Failed to start recording: \(error.localizedDescription)")
       clearActiveRecordingMetadata()
       endRecordingSession()
+    }
+  }
+
+  // MARK: - Live Capture
+
+  /// Starts the capture engine (if needed) and attaches a per-buffer callback.
+  ///
+  /// This method intentionally does NOT engage media-pause, volume-mute, or
+  /// `mediaControlTask` — live mode is silent on those concerns. It also does NOT set
+  /// `activeRecordingSession`; that field is exclusively for file-recording sessions.
+  /// Coexistence with an active file recording is safe: the engine is already running,
+  /// and the callback fires in addition to the file write.
+  func startLiveCapture(onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) throws {
+    ensureInputDeviceUnmuted()
+    let activeInputDevice = applyPreferredInputDevice()
+    try ensureCaptureControllerReady(for: activeInputDevice, reason: "startLiveCapture")
+    captureController.beginLiveCapture(onBuffer: onBuffer)
+    liveCaptureStartedAt = Date()
+    let mode = currentCaptureMode()
+    recordingLogger.notice(
+      "Live capture started input=\(self.describeDevice(activeInputDevice)) mode=\(mode.rawValue)"
+    )
+  }
+
+  /// Detaches the live-capture callback. In standard mode with no active file recording,
+  /// also stops the capture engine to release the audio hardware — matching the cleanup
+  /// behaviour of `stopRecording` in standard mode.
+  func stopLiveCapture() {
+    captureController.endLiveCapture()
+    let duration = liveCaptureStartedAt.map { Date().timeIntervalSince($0) }
+    liveCaptureStartedAt = nil
+    recordingLogger.notice("Live capture stopped duration=\(self.formatDuration(duration))")
+
+    // Release the engine in standard mode only when no file recording is in progress.
+    // In super-fast mode the engine stays warm between sessions.
+    if !hexSettings.superFastModeEnabled, activeRecordingSession == nil {
+      stopCaptureController(reason: "stop-live-capture")
     }
   }
 

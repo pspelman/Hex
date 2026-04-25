@@ -64,6 +64,58 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertEqual(decoded, settings)
 	}
 
+	// MARK: - Live transcription settings
+
+	func testDefaultSettings_liveTranscriptionEnabledIsFalse() {
+		let settings = HexSettings()
+		XCTAssertFalse(settings.liveTranscriptionEnabled)
+	}
+
+	func testDefaultSettings_liveTranscriptionChunkSizeIsMs320() {
+		let settings = HexSettings()
+		XCTAssertEqual(settings.liveTranscriptionChunkSize, .ms320)
+	}
+
+	func testDecode_omittingNewKeys_returnsDefaults() throws {
+		// Given — JSON without the new keys
+		let payload = "{}"
+		let data = try XCTUnwrap(payload.data(using: .utf8))
+
+		// When
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
+
+		// Then — both fields default gracefully
+		XCTAssertFalse(decoded.liveTranscriptionEnabled)
+		XCTAssertEqual(decoded.liveTranscriptionChunkSize, .ms320)
+	}
+
+	func testDecode_withNewKeysPresent_returnsThoseValues() throws {
+		// Given — JSON that explicitly sets the new fields
+		let payload = #"{"liveTranscriptionEnabled":true,"liveTranscriptionChunkSize":"ms160"}"#
+		let data = try XCTUnwrap(payload.data(using: .utf8))
+
+		// When
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
+
+		// Then
+		XCTAssertTrue(decoded.liveTranscriptionEnabled)
+		XCTAssertEqual(decoded.liveTranscriptionChunkSize, .ms160)
+	}
+
+	func testEncodeDecodeRoundTrip_preservesLiveTranscriptionValues() throws {
+		// Given
+		let original = HexSettings(liveTranscriptionEnabled: true, liveTranscriptionChunkSize: .ms160)
+
+		// When
+		let data = try JSONEncoder().encode(original)
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
+
+		// Then
+		XCTAssertTrue(decoded.liveTranscriptionEnabled)
+		XCTAssertEqual(decoded.liveTranscriptionChunkSize, .ms160)
+		XCTAssertEqual(decoded, original)
+	}
+
 	private func loadFixture(named name: String) throws -> Data {
 		guard let url = Bundle.module.url(
 			forResource: name,

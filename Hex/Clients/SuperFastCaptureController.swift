@@ -110,6 +110,17 @@ final class SuperFastCaptureController {
     interleaved: false
   )!
 
+  // MARK: - Live Capture Hook
+  //
+  // Contract: `liveBufferCallback` is set and cleared exclusively on `processingQueue`.
+  // `beginLiveCapture` and `endLiveCapture` are idempotent — calling either multiple times
+  // is safe. The callback fires synchronously from `process(_:)` with the converted 16 kHz
+  // mono Float32 buffer. The buffer is owned by the converter and lives only for the
+  // duration of the call; callers must copy it (via `AVAudioPCMBuffer` internal copy or
+  // `clone`) if they need to retain it. In practice the FluidAudio actor copies via its own
+  // internal `audioConverter.resampleBuffer`, so no defensive copy is required here.
+  private var liveBufferCallback: (@Sendable (AVAudioPCMBuffer) -> Void)?
+
   private var engine: AVAudioEngine?
   private var converter: AVAudioConverter?
   private var activeRecording: ActiveRecording?
@@ -132,6 +143,30 @@ final class SuperFastCaptureController {
 
   var isRecording: Bool {
     processingQueue.sync { activeRecording != nil }
+  }
+
+  var isLiveCaptureActive: Bool {
+    processingQueue.sync { liveBufferCallback != nil }
+  }
+
+  /// Attaches a buffer callback for live-capture mode.
+  ///
+  /// Once set, every converted 16 kHz mono Float32 buffer produced by `process(_:)` is
+  /// delivered to `onBuffer` **before** any file-write. The callback fires on
+  /// `processingQueue`; implementations must not block.
+  func beginLiveCapture(onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) {
+    processingQueue.async { [weak self] in
+      self?.liveBufferCallback = onBuffer
+      self?.logger.notice("Live capture hook attached")
+    }
+  }
+
+  /// Detaches the live-capture buffer callback.
+  func endLiveCapture() {
+    processingQueue.async { [weak self] in
+      self?.liveBufferCallback = nil
+      self?.logger.notice("Live capture hook detached")
+    }
   }
 
   var stopTimingEstimate: StopTimingEstimate {
@@ -213,6 +248,7 @@ final class SuperFastCaptureController {
 
     processingQueue.sync {
       activeRecording = nil
+      liveBufferCallback = nil
       ringBuffer.clear()
       lastProcessedBufferAt = nil
       recentCallbackIntervals.removeAll(keepingCapacity: false)
@@ -306,6 +342,11 @@ final class SuperFastCaptureController {
     if keepWarmBuffer, activeRecording == nil {
       ringBuffer.append(UnsafeBufferPointer(start: samples, count: sampleCount))
     }
+
+    // Deliver the converted buffer to the live-capture subscriber before any file I/O.
+    // The buffer is valid for the lifetime of this call; callers that need to retain it
+    // past callback return must clone it themselves.
+    liveBufferCallback?(converted)
 
     if activeRecording != nil {
       meterContinuation.yield(meter(for: samples, count: sampleCount))
