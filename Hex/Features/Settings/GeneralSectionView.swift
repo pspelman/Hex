@@ -116,19 +116,18 @@ struct GeneralSectionView: View {
 						.settingsCaption()
 
 					if store.hexSettings.liveTranscriptionEnabled {
-						HStack {
+						Picker(selection: Binding(
+							get: { store.hexSettings.liveTranscriptionChunkSize },
+							set: { store.send(.setLiveTranscriptionChunkSize($0)) }
+						)) {
+							Text("160 ms (lowest latency)").tag(LiveTranscriptionChunkSize.ms160)
+							Text("320 ms (more accurate)").tag(LiveTranscriptionChunkSize.ms320)
+						} label: {
 							Text("Chunk Size")
-							Spacer()
-							Picker("", selection: Binding(
-								get: { store.hexSettings.liveTranscriptionChunkSize },
-								set: { store.send(.setLiveTranscriptionChunkSize($0)) }
-							)) {
-								Text("160 ms (lowest latency)").tag(LiveTranscriptionChunkSize.ms160)
-								Text("320 ms (more accurate)").tag(LiveTranscriptionChunkSize.ms320)
-							}
-							.pickerStyle(.menu)
-							.fixedSize()
+								.lineLimit(1)
+								.fixedSize(horizontal: true, vertical: false)
 						}
+						.pickerStyle(.menu)
 
 						Divider()
 
