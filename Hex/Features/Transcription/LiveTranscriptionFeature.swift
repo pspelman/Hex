@@ -144,6 +144,9 @@ struct LiveTranscriptionFeature {
         guard state.isModelReady else {
           liveLogger.notice("Live hotkey pressed but EOU model not ready — initiating download")
           state.lastError = "Live transcription model is downloading…"
+          // Clear the lock flag so the UI doesn't show a phantom live-recording indicator.
+          // isLiveLocked may have been set by handleDispatcherFired before dispatching here.
+          state.isLiveLocked = false
           return .send(.downloadModel)
         }
         // Claim isLive synchronously here, not in `.startLiveSession`. Without this,

@@ -286,6 +286,9 @@ private extension TranscriptionFeature {
 private extension TranscriptionFeature {
   func handleStartRecording(_ state: inout State) -> Effect<Action> {
     guard state.modelBootstrapState.isModelReady else {
+      // Clear the lock flag so that the UI doesn't show a phantom recording indicator.
+      // This flag may have been set by handleDispatcherFired before calling us.
+      state.isBatchLocked = false
       return .merge(
         .send(.modelMissing),
         .run { _ in soundEffect.play(.cancel) }
