@@ -133,15 +133,21 @@ extension HotkeyDispatcher {
         for chord in perChord.keys {
             // Snapshot the processor, mutate it under a controlled clock, write back.
             guard var state = perChord[chord] else { continue }
+
+            let preState = state.processor.state
+
             let output: HotKeyProcessor.Output? = withDependencies {
                 $0.date.now = now
             } operation: {
                 state.processor.process(keyEvent: keyEvent)
             }
+
+            let postState = state.processor.state
+
             // The processor's `state` field reflects the post-event state machine state.
             // Only `.doubleTapLock` maps to the double-tap pattern; everything else is press-and-hold.
             let pattern: Pattern
-            switch state.processor.state {
+            switch postState {
             case .doubleTapLock:
                 pattern = .doubleTap
             default:
@@ -182,6 +188,34 @@ extension HotkeyDispatcher {
 
             case .none:
                 break
+            }
+
+            // Lock-engagement transition: state moved from .pressAndHold to .doubleTapLock
+            // with no output (the lock engages silently on the second release).
+            //
+            // Promote the in-flight session from the pressHold slot to the doubleTap slot
+            // for this chord and emit a synthetic .startRecording so consumers can mark the
+            // session as locked. Without this, a chord bound to both batchHold and
+            // batchDoubleTap (the default) could only ever fire batchHold — Mode D
+            // (locked batch recording) would be unreachable.
+            if output == nil,
+               case .pressAndHold = preState,
+               postState == .doubleTapLock
+            {
+                let doubleTapSlots = configuration.slotsBoundTo(chord: chord, pattern: .doubleTap)
+                switch doubleTapSlots.count {
+                case 0:
+                    // No doubleTap slot bound — should not occur because configure() sets
+                    // doubleTapLockEnabled = false when no doubleTap slot is bound to the chord.
+                    break
+                case 1:
+                    if let slot = doubleTapSlots.first {
+                        state.activeSlot = slot
+                        outcome = .fire(slot: slot, action: .startRecording)
+                    }
+                default:
+                    outcome = .conflict(slots: doubleTapSlots, action: .startRecording)
+                }
             }
 
             perChord[chord] = state

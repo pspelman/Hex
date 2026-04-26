@@ -81,25 +81,18 @@ final class HotkeyDispatcherTests: XCTestCase {
 	}
 
 	/// Verifies double-tap-lock dispatch routing when both batchHold and batchDoubleTap share the
-	/// same chord (Option-only).
+	/// same chord (Option-only). This is the default fresh-install configuration.
 	///
 	/// HotKeyProcessor double-tap mechanics for a modifier-only chord:
 	///  - First press  → .pressAndHold, emits .startRecording
 	///  - First release (within doubleTapThreshold) → .idle, emits .stopRecording; records lastTapAt
-	///  - Second press  → .pressAndHold again, emits .startRecording (not yet in lock)
+	///  - Second press  → .pressAndHold again, emits .startRecording (not yet locked)
 	///  - Second release (within doubleTapThreshold of first release) → .doubleTapLock, emits nil
 	///  - Third press while locked → .idle, emits .stopRecording
 	///
-	/// Because the processor emits .startRecording on the *second press* while the post-event state
-	/// is still .pressAndHold (the lock is not engaged until the release), the dispatcher routes
-	/// that .startRecording to the .batchHold slot (pattern == .pressAndHold at that moment).
-	/// The dispatcher then keeps .batchHold as the activeSlot through the lock and routes the
-	/// eventual .stopRecording to .batchHold as well.
-	///
-	/// The .batchDoubleTap slot is therefore never fired in the current implementation — this is a
-	/// known limitation: the lock-entry happens on release (nil output), so there is no moment
-	/// where the dispatcher can see both "output == .startRecording" and "state == .doubleTapLock"
-	/// at the same time.
+	/// The dispatcher detects the silent .pressAndHold → .doubleTapLock transition on the second
+	/// release and synthesises a .fire(batchDoubleTap, .startRecording) outcome, promoting
+	/// the in-flight session to the correct slot.
 	func testDoubleTapDispatchesToDoubleTapSlot() {
 		let opt = HotKey(key: nil, modifiers: [.option])
 		var dispatcher = HotkeyDispatcher()
@@ -112,33 +105,34 @@ final class HotkeyDispatcherTests: XCTestCase {
 		let press = KeyEvent(key: nil, modifiers: [.option])
 		let release = KeyEvent(key: nil, modifiers: [])
 
-		// First tap: press fires batchHold.startRecording (press-and-hold path).
+		// First press: enters press-and-hold → routes to batchHold.
 		let firstPress = dispatcher.process(keyEvent: press, now: t0)
 		XCTAssertEqual(firstPress, .fire(slot: .batchHold, action: .startRecording))
 
-		// First release: fires batchHold.stopRecording; records lastTapAt for double-tap detection.
+		// First release (50ms, within modifier-only threshold): processor stops the first session
+		// and records lastTapAt for double-tap detection. Modifier-only hotkeys use a 0.3s threshold
+		// before a release counts as a "real" stop; at 50ms this is still below threshold so the
+		// processor emits .stopRecording (not .discard) because isReleaseForActiveHotkey fires
+		// before the elapsed-time check.
 		let firstRelease = dispatcher.process(keyEvent: release, now: t0.addingTimeInterval(0.05))
 		XCTAssertEqual(firstRelease, .fire(slot: .batchHold, action: .stopRecording))
 
-		// Second press (within 0.3s double-tap window): processor enters .pressAndHold again and
-		// emits .startRecording. Post-event state is .pressAndHold, so dispatcher routes to
-		// .batchHold (not .batchDoubleTap — the lock has not engaged yet).
+		// Second press (100ms, within 0.3s double-tap window): processor enters .pressAndHold
+		// again. Post-event state is still .pressAndHold (lock not engaged yet), so batchHold fires.
 		let secondPress = dispatcher.process(keyEvent: press, now: t0.addingTimeInterval(0.10))
 		XCTAssertEqual(secondPress, .fire(slot: .batchHold, action: .startRecording))
 
-		// Second release: processor transitions to .doubleTapLock but emits nil.
-		// Dispatcher produces .none — no slot receives a .startRecording for the locked session.
+		// Second release (150ms): processor transitions .pressAndHold → .doubleTapLock silently
+		// (nil output). The dispatcher detects this transition and emits a synthetic
+		// .fire(batchDoubleTap, .startRecording), promoting the session to the doubleTap slot.
+		// THIS IS THE KEY CONTRACT ASSERTION.
 		let secondRelease = dispatcher.process(keyEvent: release, now: t0.addingTimeInterval(0.15))
-		XCTAssertEqual(secondRelease, .none)
+		XCTAssertEqual(secondRelease, .fire(slot: .batchDoubleTap, action: .startRecording))
 
 		// Third press while locked: processor emits .stopRecording and returns to .idle.
-		// activeSlot is still .batchHold (set on the second press), so stopRecording is routed there.
-		//
-		// NOTE: This reveals the current limitation — the stop routes to .batchHold rather than
-		// .batchDoubleTap. The contract "lock engagement routes startRecording to batchDoubleTap"
-		// is NOT met by the current implementation because the dispatcher cannot observe lock
-		// engagement at the moment it would need to re-classify the startRecording.
+		// activeSlot is now .batchDoubleTap (promoted on the second release), so stopRecording
+		// routes there.
 		let thirdPress = dispatcher.process(keyEvent: press, now: t0.addingTimeInterval(1.0))
-		XCTAssertEqual(thirdPress, .fire(slot: .batchHold, action: .stopRecording))
+		XCTAssertEqual(thirdPress, .fire(slot: .batchDoubleTap, action: .stopRecording))
 	}
 }
