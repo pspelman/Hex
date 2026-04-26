@@ -60,6 +60,7 @@ struct AppFeature {
   @Dependency(\.pasteboard) var pasteboard
   @Dependency(\.transcription) var transcription
   @Dependency(\.permissions) var permissions
+  @Dependency(\.soundEffects) var soundEffects
 
   var body: some ReducerOf<Self> {
     BindingReducer()
@@ -235,7 +236,7 @@ struct AppFeature {
   /// Live-slot outcomes are forwarded to `LiveTranscriptionFeature` via
   /// `.liveTranscription(.dispatcherFired(slot:action:))` (wired in Task 3.3).
   private func startHotkeyDispatchEffect() -> Effect<Action> {
-    .run { send in
+    .run { [soundEffects] send in
       @Shared(.isSettingHotKey) var isSettingHotKey: Bool
       @Shared(.hexSettings) var hexSettings: HexSettings
 
@@ -260,12 +261,12 @@ struct AppFeature {
         case .keyboard(let keyEvent):
           let now = Date()
           let outcome = dispatcher.process(keyEvent: keyEvent, now: now)
-          return Self.routeDispatchOutcome(outcome, send: send)
+          return Self.routeDispatchOutcome(outcome, send: send, soundEffects: soundEffects)
 
         case .mouseClick:
           let now = Date()
           let outcome = dispatcher.processMouseClick(now: now)
-          _ = Self.routeDispatchOutcome(outcome, send: send)
+          _ = Self.routeDispatchOutcome(outcome, send: send, soundEffects: soundEffects)
           // Never intercept a mouse click — the user needs it to reach the target app.
           return false
         }
@@ -288,11 +289,12 @@ struct AppFeature {
   ///
   /// - Batch slots → `TranscriptionFeature.dispatcherFired`
   /// - Live slots  → `LiveTranscriptionFeature.dispatcherFired`
-  /// - Conflicts   → no-op until Task 3.4 adds the UX log + cancel sound
+  /// - Conflicts   → log via HexLog + play cancel sound (no session started)
   @discardableResult
   private static func routeDispatchOutcome(
     _ outcome: HotkeyDispatcher.DispatchOutcome,
-    send: Send<Action>
+    send: Send<Action>,
+    soundEffects: SoundEffectsClient
   ) -> Bool {
     switch outcome {
     case let .fire(slot, slotAction):
@@ -331,8 +333,16 @@ struct AppFeature {
       }
       return false
 
-    case .conflict:
-      // Task 3.4 will add conflict UX (log + cancel sound).
+    case let .conflict(slots, action):
+      // Two or more slots share the same chord — refuse to start any session.
+      // Give the user audio feedback (cancel sound) and log so they can diagnose
+      // the misconfiguration in Settings. The key event is passed through to the
+      // focused app (return false).
+      let slotNames = slots.map { String(describing: $0) }.sorted().joined(separator: ", ")
+      HexLog.hotKey.notice(
+        "Hotkey conflict: slots [\(slotNames, privacy: .public)] both claim chord for action \(String(describing: action), privacy: .public) — no session started"
+      )
+      soundEffects.play(.cancel)
       return false
 
     case .none:
