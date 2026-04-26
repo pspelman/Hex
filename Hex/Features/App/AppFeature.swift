@@ -242,6 +242,7 @@ struct AppFeature {
       @Shared(.isSettingLiveDoubleTapHotkey) var isSettingLiveDoubleTapHotkey: Bool
       @Shared(.isSettingBatchHoldHotkey) var isSettingBatchHoldHotkey: Bool
       @Shared(.isSettingBatchDoubleTapHotkey) var isSettingBatchDoubleTapHotkey: Bool
+      @Shared(.isSettingPasteLastTranscriptHotkey) var isSettingPasteLastTranscriptHotkey: Bool
       @Shared(.hexSettings) var hexSettings: HexSettings
 
       // Local dispatcher copy — mutated synchronously inside the callback.
@@ -256,7 +257,8 @@ struct AppFeature {
             || isSettingLiveHoldHotkey
             || isSettingLiveDoubleTapHotkey
             || isSettingBatchHoldHotkey
-            || isSettingBatchDoubleTapHotkey {
+            || isSettingBatchDoubleTapHotkey
+            || isSettingPasteLastTranscriptHotkey {
           return false
         }
 
