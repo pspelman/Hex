@@ -63,4 +63,20 @@ final class HotkeyDispatcherTests: XCTestCase {
 		dispatcher.configure(cfg) // re-apply
 		// Contract: no crash, no leaked state.
 	}
+
+	func testPressAndHoldDispatchesToBoundSlot() {
+		let opt = HotKey(key: nil, modifiers: [.option])
+		var dispatcher = HotkeyDispatcher()
+		dispatcher.configure(HotkeyDispatcher.Configuration(batchHoldHotkey: opt))
+
+		let t0 = Date(timeIntervalSinceReferenceDate: 0)
+		let pressEvent = KeyEvent(key: nil, modifiers: [.option])
+		let releaseEvent = KeyEvent(key: nil, modifiers: [])
+
+		let pressOutcome = dispatcher.process(keyEvent: pressEvent, now: t0)
+		XCTAssertEqual(pressOutcome, .fire(slot: .batchHold, action: .startRecording))
+
+		let releaseOutcome = dispatcher.process(keyEvent: releaseEvent, now: t0.addingTimeInterval(0.5))
+		XCTAssertEqual(releaseOutcome, .fire(slot: .batchHold, action: .stopRecording))
+	}
 }

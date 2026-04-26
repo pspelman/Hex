@@ -1,3 +1,4 @@
+import Dependencies
 import Foundation
 
 /// Pure routing layer for the four-slot hotkey model.
@@ -111,6 +112,79 @@ public struct HotkeyDispatcher: Sendable {
                 perChord[chord] = PerChordState(processor: processor, activeSlot: nil)
             }
         }
+    }
+}
+
+// MARK: - Event Processing
+
+extension HotkeyDispatcher {
+    /// Routes one keyboard event through the dispatcher.
+    ///
+    /// `now` is propagated to `HotKeyProcessor` via `withDependencies` so the dispatcher
+    /// (and its tests) can supply a deterministic clock without exposing an internal API.
+    public mutating func process(keyEvent: KeyEvent, now: Date) -> DispatchOutcome {
+        guard !perChord.isEmpty else { return .none }
+
+        var outcome: DispatchOutcome = .none
+
+        for chord in perChord.keys {
+            // Snapshot the processor, mutate it under a controlled clock, write back.
+            var state = perChord[chord]!
+            let output: HotKeyProcessor.Output? = withDependencies {
+                $0.date.now = now
+            } operation: {
+                state.processor.process(keyEvent: keyEvent)
+            }
+            // The processor's `state` field reflects the post-event state machine state.
+            // Only `.doubleTapLock` maps to the double-tap pattern; everything else is press-and-hold.
+            let pattern: Pattern
+            switch state.processor.state {
+            case .doubleTapLock:
+                pattern = .doubleTap
+            default:
+                pattern = .pressAndHold
+            }
+
+            switch output {
+            case .startRecording:
+                let slots = configuration.slotsBoundTo(chord: chord, pattern: pattern)
+                switch slots.count {
+                case 0:
+                    break // chord matched but no slot wants this pattern
+                case 1:
+                    let slot = slots.first!
+                    state.activeSlot = slot
+                    outcome = .fire(slot: slot, action: .startRecording)
+                default:
+                    outcome = .conflict(slots: slots, action: .startRecording)
+                }
+
+            case .stopRecording:
+                if let active = state.activeSlot {
+                    state.activeSlot = nil
+                    outcome = .fire(slot: active, action: .stopRecording)
+                }
+
+            case .cancel:
+                if let active = state.activeSlot {
+                    state.activeSlot = nil
+                    outcome = .fire(slot: active, action: .cancel)
+                }
+
+            case .discard:
+                if let active = state.activeSlot {
+                    state.activeSlot = nil
+                    outcome = .discard(slot: active)
+                }
+
+            case .none:
+                break
+            }
+
+            perChord[chord] = state
+        }
+
+        return outcome
     }
 }
 
