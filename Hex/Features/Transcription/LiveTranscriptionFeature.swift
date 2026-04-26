@@ -46,6 +46,9 @@ struct LiveTranscriptionFeature {
     var sourceAppName: String?
     /// When the current live session started.
     var liveStartedAt: Date?
+    /// Tracks whether the active live session was entered via liveDoubleTap (locked mode).
+    /// Task 5.1 will bind this to the InvisibleWindow indicator; not yet used in the UI.
+    var isLiveLocked: Bool = false
 
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
@@ -64,6 +67,11 @@ struct LiveTranscriptionFeature {
     case hotKeyReleased
     /// User pressed ESC or another cancellation path.
     case cancel
+    /// Sub-threshold tap — silently close any session that already started.
+    case discard
+
+    // Dispatcher-routed live slot outcomes (wired in Task 3.3 via AppFeature hub)
+    case dispatcherFired(slot: HotkeyDispatcher.Slot, action: HotkeyDispatcher.SlotAction)
 
     // MARK: - Session lifecycle
 
@@ -275,6 +283,17 @@ struct LiveTranscriptionFeature {
         guard state.isLive else { return .none }
         return .send(.abortSession(.sessionCancelled))
 
+      // MARK: - Dispatcher-Routed Live Slot Outcomes
+
+      case let .dispatcherFired(slot, slotAction):
+        return handleDispatcherFired(&state, slot: slot, action: slotAction)
+
+      case .discard:
+        // Sub-threshold tap: a session may have been started on press.
+        // Send hotKeyReleased to close it cleanly (invariant #9).
+        // hotKeyReleased guards on isLive, so this is safe to send unconditionally.
+        return .send(.hotKeyReleased)
+
       // MARK: - Model Availability
 
       case .checkModelReady:
@@ -358,92 +377,22 @@ struct LiveTranscriptionFeature {
 // MARK: - Hotkey Monitoring Effect
 
 private extension LiveTranscriptionFeature {
-  /// Mirrors `TranscriptionFeature.startHotKeyMonitoringEffect()` but gates on
-  /// `liveTranscriptionEnabled`. When false the closure returns `false` so the batch
-  /// path can handle the event. When true it acts on the event and returns the
-  /// appropriate intercept flag.
+  /// As of Task 3.3, hotkey dispatch is handled by AppFeature's `startHotkeyDispatchEffect()`,
+  /// which owns a local `HotkeyDispatcher` copy and routes live-slot outcomes here via
+  /// `.dispatcherFired(slot:action:)`. This function retains only the lightweight per-session
+  /// escape-key listener (ESC-while-active → cancel) that does not belong in the central hub.
   func startHotKeyMonitoringEffect() -> Effect<Action> {
     .run { send in
-      var hotKeyProcessor: HotKeyProcessor = .init(hotkey: HotKey(key: nil, modifiers: [.option]))
-      @Shared(.isSettingHotKey) var isSettingHotKey: Bool
-      @Shared(.hexSettings) var hexSettings: HexSettings
-
+      // ESC with no modifiers cancels any active live session regardless of how it was started.
       let token = keyEventMonitor.handleInputEvent { inputEvent in
-        // Skip if the user is currently setting a hotkey
-        if isSettingHotKey {
+        guard case .keyboard(let keyEvent) = inputEvent,
+              keyEvent.key == .escape,
+              keyEvent.modifiers.isEmpty
+        else {
           return false
         }
-
-        // Gate: if live mode is off, let the batch path handle the event.
-        if !hexSettings.liveTranscriptionEnabled {
-          return false
-        }
-
-        // Keep the processor in sync with user preferences
-        hotKeyProcessor.hotkey = hexSettings.hotkey
-        let useDoubleTapOnly = hexSettings.doubleTapLockEnabled && hexSettings.useDoubleTapOnly
-        hotKeyProcessor.doubleTapLockEnabled = hexSettings.doubleTapLockEnabled
-        hotKeyProcessor.useDoubleTapOnly = useDoubleTapOnly
-        hotKeyProcessor.minimumKeyTime = hexSettings.minimumKeyTime
-
-        switch inputEvent {
-        case .keyboard(let keyEvent):
-          // ESC while idle passes through; while active cancel.
-          if keyEvent.key == .escape, keyEvent.modifiers.isEmpty,
-             hotKeyProcessor.state == .idle
-          {
-            Task { await send(.cancel) }
-            return false
-          }
-
-          switch hotKeyProcessor.process(keyEvent: keyEvent) {
-          case .startRecording:
-            if hotKeyProcessor.state == .doubleTapLock {
-              Task { await send(.startLiveSession) }
-            } else {
-              Task { await send(.hotKeyPressed) }
-            }
-            return useDoubleTapOnly || keyEvent.key != nil
-
-          case .stopRecording:
-            Task { await send(.hotKeyReleased) }
-            return false
-
-          case .cancel:
-            Task { await send(.cancel) }
-            return true
-
-          case .discard:
-            // A `.discard` here means the user pressed and released within the
-            // modifier-only threshold (~0.3 s) — too fast to be a real press-and-hold.
-            // We still fired hotKeyPressed on the press, so a session may be mid-setup.
-            // Send hotKeyReleased to terminate it cleanly. Without this, the session
-            // runs unattended forever because no later release will arrive.
-            Task { await send(.hotKeyReleased) }
-            return false
-
-          case .none:
-            if let pressedKey = keyEvent.key,
-               pressedKey == hotKeyProcessor.hotkey.key,
-               keyEvent.modifiers == hotKeyProcessor.hotkey.modifiers
-            {
-              return true
-            }
-            return false
-          }
-
-        case .mouseClick:
-          switch hotKeyProcessor.processMouseClick() {
-          case .cancel:
-            Task { await send(.cancel) }
-            return false
-          case .discard:
-            // Not applicable for live mode; pass through.
-            return false
-          case .startRecording, .stopRecording, .none:
-            return false
-          }
-        }
+        Task { await send(.cancel) }
+        return false
       }
 
       defer { token.cancel() }
@@ -455,6 +404,61 @@ private extension LiveTranscriptionFeature {
       } onCancel: {
         token.cancel()
       }
+    }
+  }
+}
+
+// MARK: - Dispatcher-Routed Live Slot Handler
+
+private extension LiveTranscriptionFeature {
+  /// Handles outcomes routed from AppFeature's HotkeyDispatcher hub for live slots.
+  ///
+  /// Idempotency rules (symmetric to TranscriptionFeature.handleDispatcherFired):
+  /// - `.liveHold.startRecording`      → normal press-and-hold start. No-op if already live.
+  /// - `.liveDoubleTap.startRecording` → promote to locked mode. No-op session start if already
+  ///   live (session was started under liveHold and is now being promoted — invariant lock-promotion).
+  /// - `.liveHold.stopRecording` / `.liveDoubleTap.stopRecording` → drain and finish the session.
+  /// - `.liveHold.cancel` / `.liveDoubleTap.cancel`               → abort immediately.
+  /// - Batch slots are handled by TranscriptionFeature; ignored here.
+  func handleDispatcherFired(
+    _ state: inout State,
+    slot: HotkeyDispatcher.Slot,
+    action: HotkeyDispatcher.SlotAction
+  ) -> Effect<Action> {
+    switch (slot, action) {
+
+    // ── Live hold: normal press-and-hold start ───────────────────────────────
+    case (.liveHold, .startRecording):
+      // Invariant #8: hotKeyPressed claims state.isLive = true synchronously.
+      state.isLiveLocked = false
+      if state.isLive { return .none }
+      return .send(.hotKeyPressed)
+
+    // ── Live double-tap: promote session to locked mode ──────────────────────
+    case (.liveDoubleTap, .startRecording):
+      // Lock-promotion: set isLiveLocked whether or not a session is already running.
+      state.isLiveLocked = true
+      // If no session is running yet, start one now.
+      if !state.isLive {
+        return .send(.hotKeyPressed)
+      }
+      // Session already running (was started as liveHold) — just mark it locked.
+      return .none
+
+    // ── Stop: either slot drains and finishes the active session ─────────────
+    case (.liveHold, .stopRecording), (.liveDoubleTap, .stopRecording):
+      state.isLiveLocked = false
+      // hotKeyReleased guards on isLive, so safe to send unconditionally.
+      return .send(.hotKeyReleased)
+
+    // ── Cancel: either slot aborts immediately ────────────────────────────────
+    case (.liveHold, .cancel), (.liveDoubleTap, .cancel):
+      state.isLiveLocked = false
+      return .send(.cancel)
+
+    // ── Batch slots: not handled here (TranscriptionFeature owns batch) ───────
+    case (.batchHold, _), (.batchDoubleTap, _):
+      return .none
     }
   }
 }

@@ -232,7 +232,8 @@ struct AppFeature {
   ///
   /// Batch-slot outcomes are forwarded to `TranscriptionFeature` via
   /// `.transcription(.dispatcherFired(slot:action:))`.
-  /// Live-slot outcomes are no-ops until Task 3.3 wires `LiveTranscriptionFeature`.
+  /// Live-slot outcomes are forwarded to `LiveTranscriptionFeature` via
+  /// `.liveTranscription(.dispatcherFired(slot:action:))` (wired in Task 3.3).
   private func startHotkeyDispatchEffect() -> Effect<Action> {
     .run { send in
       @Shared(.isSettingHotKey) var isSettingHotKey: Bool
@@ -286,8 +287,8 @@ struct AppFeature {
   /// CGEvent-intercept flag (true = swallow the event, false = pass through).
   ///
   /// - Batch slots → `TranscriptionFeature.dispatcherFired`
-  /// - Live slots → no-op until Task 3.3
-  /// - Conflicts → no-op until Task 3.4 adds the UX log + cancel sound
+  /// - Live slots  → `LiveTranscriptionFeature.dispatcherFired`
+  /// - Conflicts   → no-op until Task 3.4 adds the UX log + cancel sound
   @discardableResult
   private static func routeDispatchOutcome(
     _ outcome: HotkeyDispatcher.DispatchOutcome,
@@ -304,12 +305,14 @@ struct AppFeature {
         MainActor.assumeIsolated {
           send(.transcription(.dispatcherFired(slot: slot, action: slotAction)))
         }
-        // Intercept only for stopRecording/cancel on a chord that has a key component —
-        // for modifier-only chords the key-up events should pass through.
+        // Intercept only for cancel on batch slots.
         return slotAction == .cancel
       case .liveHold, .liveDoubleTap:
-        // Task 3.3 will wire these to LiveTranscriptionFeature.
-        return false
+        MainActor.assumeIsolated {
+          send(.liveTranscription(.dispatcherFired(slot: slot, action: slotAction)))
+        }
+        // Intercept only for cancel on live slots.
+        return slotAction == .cancel
       }
 
     case let .discard(slot):
@@ -321,8 +324,10 @@ struct AppFeature {
           send(.transcription(.discard))
         }
       case .liveHold, .liveDoubleTap:
-        // Task 3.3 will wire live-slot discards to LiveTranscriptionFeature.
-        break
+        // Per invariant #9: discard closes any session the press may have started.
+        MainActor.assumeIsolated {
+          send(.liveTranscription(.discard))
+        }
       }
       return false
 
