@@ -27,6 +27,10 @@ struct TranscriptionFeature {
     var meter: Meter = .init(averagePower: 0, peakPower: 0)
     var sourceAppBundleID: String?
     var sourceAppName: String?
+    /// Tracks whether the active batch recording session was promoted to locked
+    /// (i.e. entered via batchDoubleTap). Task 5.1 will bind this to the
+    /// InvisibleWindow indicator; it is set here but not yet used in the UI.
+    var isBatchLocked: Bool = false
     @Shared(.hexSettings) var hexSettings: HexSettings
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
     @Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
@@ -37,9 +41,12 @@ struct TranscriptionFeature {
     case task
     case audioLevelUpdated(Meter)
 
-    // Hotkey actions
+    // Hotkey actions (legacy press/release — kept for backward compatibility with direct sends)
     case hotKeyPressed
     case hotKeyReleased
+
+    // Dispatcher-routed batch slot outcomes (wired in Task 3.2 via AppFeature hub)
+    case dispatcherFired(slot: HotkeyDispatcher.Slot, action: HotkeyDispatcher.SlotAction)
 
     // Recording flow
     case startRecording
@@ -106,6 +113,11 @@ struct TranscriptionFeature {
         // the delayed "startRecording" effect if we never actually started.
         return handleHotKeyReleased(isRecording: state.isRecording)
 
+      // MARK: - Dispatcher-Routed Batch Slot Outcomes
+
+      case let .dispatcherFired(slot, slotAction):
+        return handleDispatcherFired(&state, slot: slot, action: slotAction)
+
       // MARK: - Recording Flow
 
       case .startRecording:
@@ -159,90 +171,23 @@ private extension TranscriptionFeature {
   }
 
   /// Effect to start monitoring hotkey events through the `keyEventMonitor`.
+  ///
+  /// As of Task 3.2, hotkey dispatch is handled by AppFeature's `startHotkeyDispatchEffect()`,
+  /// which owns a local `HotkeyDispatcher` copy and routes batch-slot outcomes here via
+  /// `.dispatcherFired(slot:action:)`. This function retains only the lightweight per-session
+  /// escape-key listener (ESC-while-idle → cancel) that does not belong in the central hub.
   func startHotKeyMonitoringEffect() -> Effect<Action> {
     .run { send in
-      var hotKeyProcessor: HotKeyProcessor = .init(hotkey: HotKey(key: nil, modifiers: [.option]))
-      @Shared(.isSettingHotKey) var isSettingHotKey: Bool
-      @Shared(.hexSettings) var hexSettings: HexSettings
-
-      // Handle incoming input events (keyboard and mouse)
+      // ESC with no modifiers cancels any active session regardless of how it was started.
       let token = keyEventMonitor.handleInputEvent { inputEvent in
-        // Skip if the user is currently setting a hotkey
-        if isSettingHotKey {
+        guard case .keyboard(let keyEvent) = inputEvent,
+              keyEvent.key == .escape,
+              keyEvent.modifiers.isEmpty
+        else {
           return false
         }
-
-        // Defer to LiveTranscriptionFeature when live mode is enabled.
-        if hexSettings.liveTranscriptionEnabled {
-          return false
-        }
-
-        // Always keep hotKeyProcessor in sync with current user hotkey preference
-        hotKeyProcessor.hotkey = hexSettings.hotkey
-        let useDoubleTapOnly = hexSettings.doubleTapLockEnabled && hexSettings.useDoubleTapOnly
-        hotKeyProcessor.doubleTapLockEnabled = hexSettings.doubleTapLockEnabled
-        hotKeyProcessor.useDoubleTapOnly = useDoubleTapOnly
-        hotKeyProcessor.minimumKeyTime = hexSettings.minimumKeyTime
-
-        switch inputEvent {
-        case .keyboard(let keyEvent):
-          // If Escape is pressed with no modifiers while idle, let's treat that as `cancel`.
-          if keyEvent.key == .escape, keyEvent.modifiers.isEmpty,
-             hotKeyProcessor.state == .idle
-          {
-            Task { await send(.cancel) }
-            return false
-          }
-
-          // Process the key event
-          switch hotKeyProcessor.process(keyEvent: keyEvent) {
-          case .startRecording:
-            // If double-tap lock is triggered, we start recording immediately
-            if hotKeyProcessor.state == .doubleTapLock {
-              Task { await send(.startRecording) }
-            } else {
-              Task { await send(.hotKeyPressed) }
-            }
-            // If the hotkey is purely modifiers, return false to keep it from interfering with normal usage
-            // But if useDoubleTapOnly is true, always intercept the key
-            return useDoubleTapOnly || keyEvent.key != nil
-
-          case .stopRecording:
-            Task { await send(.hotKeyReleased) }
-            return false // or `true` if you want to intercept
-
-          case .cancel:
-            Task { await send(.cancel) }
-            return true
-
-          case .discard:
-            Task { await send(.discard) }
-            return false // Don't intercept - let the key chord reach other apps
-
-          case .none:
-            // If we detect repeated same chord, maybe intercept.
-            if let pressedKey = keyEvent.key,
-               pressedKey == hotKeyProcessor.hotkey.key,
-               keyEvent.modifiers == hotKeyProcessor.hotkey.modifiers
-            {
-              return true
-            }
-            return false
-          }
-
-        case .mouseClick:
-          // Process mouse click - for modifier-only hotkeys, this may cancel/discard
-          switch hotKeyProcessor.processMouseClick() {
-          case .cancel:
-            Task { await send(.cancel) }
-            return false // Don't intercept the click itself
-          case .discard:
-            Task { await send(.discard) }
-            return false // Don't intercept the click itself
-          case .startRecording, .stopRecording, .none:
-            return false
-          }
-        }
+        Task { await send(.cancel) }
+        return false
       }
 
       defer { token.cancel() }
@@ -277,6 +222,62 @@ private extension TranscriptionFeature {
   func handleHotKeyReleased(isRecording: Bool) -> Effect<Action> {
     // Always stop recording when hotkey is released
     return isRecording ? .send(.stopRecording) : .none
+  }
+}
+
+// MARK: - Dispatcher-Routed Batch Slot Handler
+
+private extension TranscriptionFeature {
+  /// Handles outcomes routed from AppFeature's HotkeyDispatcher hub for batch slots.
+  ///
+  /// Idempotency rules (see four-hotkey-rebuild-plan.md):
+  /// - `.batchHold.startRecording` → normal press-and-hold start. No-op if already recording.
+  /// - `.batchDoubleTap.startRecording` → promote to locked mode. No-op mic start if already
+  ///   recording (the session was started under batchHold and is now being promoted).
+  /// - `.batchHold.stopRecording` / `.batchDoubleTap.stopRecording` → stop the active session.
+  /// - `.batchHold.cancel` / `.batchDoubleTap.cancel` → cancel with sound.
+  /// - `.discard` (mapped from SlotAction.cancel when coming from discard path) → silent discard.
+  /// - Live slots are handled by LiveTranscriptionFeature (Task 3.3); ignored here.
+  func handleDispatcherFired(
+    _ state: inout State,
+    slot: HotkeyDispatcher.Slot,
+    action: HotkeyDispatcher.SlotAction
+  ) -> Effect<Action> {
+    switch (slot, action) {
+
+    // ── Batch hold: normal press-and-hold start ──────────────────────────────
+    case (.batchHold, .startRecording):
+      // If a session is already running (e.g. mid-promotion from hold → doubleTap), do nothing.
+      guard !state.isRecording else { return .none }
+      state.isBatchLocked = false
+      return handleStartRecording(&state)
+
+    // ── Batch double-tap: promote session to locked mode ─────────────────────
+    case (.batchDoubleTap, .startRecording):
+      state.isBatchLocked = true
+      // If no session is running yet, start one now.
+      if !state.isRecording {
+        return handleStartRecording(&state)
+      }
+      // Session already running (was started as batchHold) — just mark it locked.
+      return .none
+
+    // ── Stop: either slot stops the active session ────────────────────────────
+    case (.batchHold, .stopRecording), (.batchDoubleTap, .stopRecording):
+      guard state.isRecording else { return .none }
+      state.isBatchLocked = false
+      return handleStopRecording(&state)
+
+    // ── Cancel: either slot cancels with sound ────────────────────────────────
+    case (.batchHold, .cancel), (.batchDoubleTap, .cancel):
+      state.isBatchLocked = false
+      guard state.isRecording || state.isTranscribing else { return .none }
+      return handleCancel(&state)
+
+    // ── Live slots: not handled here (Task 3.3 wires LiveTranscriptionFeature) ─
+    case (.liveHold, _), (.liveDoubleTap, _):
+      return .none
+    }
   }
 }
 

@@ -110,6 +110,7 @@ struct AppFeature {
         return .merge(
           .send(.syncHotkeyDispatcher),
           startPasteLastTranscriptMonitoring(),
+          startHotkeyDispatchEffect(),
           ensureSelectedModelReadiness(),
           startPermissionMonitoring(),
           .send(.liveTranscription(.task))
@@ -240,6 +241,112 @@ struct AppFeature {
       } onCancel: {
         token.cancel()
       }
+    }
+  }
+
+  /// Central hotkey dispatch hub (Option A from the four-hotkey rebuild plan).
+  ///
+  /// Owns a local `HotkeyDispatcher` copy that is kept in sync with `hexSettings`
+  /// on every event — the same pattern the old per-feature `HotKeyProcessor` used.
+  /// `AppFeature.State.hotkeyDispatcher` stores the configuration; per-chord runtime
+  /// state (activeSlot, processor timings) lives in the local copy so it can be
+  /// mutated synchronously inside the CGEvent-tap callback.
+  ///
+  /// Batch-slot outcomes are forwarded to `TranscriptionFeature` via
+  /// `.transcription(.dispatcherFired(slot:action:))`.
+  /// Live-slot outcomes are no-ops until Task 3.3 wires `LiveTranscriptionFeature`.
+  private func startHotkeyDispatchEffect() -> Effect<Action> {
+    .run { send in
+      @Shared(.isSettingHotKey) var isSettingHotKey: Bool
+      @Shared(.hexSettings) var hexSettings: HexSettings
+
+      // Local dispatcher copy — mutated synchronously inside the callback.
+      // Re-configured on every event from the latest hexSettings.
+      var dispatcher = HotkeyDispatcher()
+
+      let token = keyEventMonitor.handleInputEvent { inputEvent in
+        // Skip when the user is actively capturing a new hotkey chord.
+        if isSettingHotKey { return false }
+
+        // Keep the local dispatcher in sync with current settings.
+        dispatcher.configure(.init(
+          liveHoldHotkey: hexSettings.liveHoldHotkey,
+          liveDoubleTapHotkey: hexSettings.liveDoubleTapHotkey,
+          batchHoldHotkey: hexSettings.batchHoldHotkey,
+          batchDoubleTapHotkey: hexSettings.batchDoubleTapHotkey,
+          minimumKeyTime: hexSettings.minimumKeyTime
+        ))
+
+        switch inputEvent {
+        case .keyboard(let keyEvent):
+          let now = Date()
+          let outcome = dispatcher.process(keyEvent: keyEvent, now: now)
+          return Self.routeDispatchOutcome(outcome, send: send)
+
+        case .mouseClick:
+          let now = Date()
+          let outcome = dispatcher.processMouseClick(now: now)
+          _ = Self.routeDispatchOutcome(outcome, send: send)
+          // Never intercept a mouse click — the user needs it to reach the target app.
+          return false
+        }
+      }
+
+      defer { token.cancel() }
+
+      await withTaskCancellationHandler {
+        while !Task.isCancelled {
+          try? await Task.sleep(for: .seconds(60))
+        }
+      } onCancel: {
+        token.cancel()
+      }
+    }
+  }
+
+  /// Routes a `DispatchOutcome` to the appropriate child feature and returns the
+  /// CGEvent-intercept flag (true = swallow the event, false = pass through).
+  ///
+  /// - Batch slots → `TranscriptionFeature.dispatcherFired`
+  /// - Live slots → no-op until Task 3.3
+  /// - Conflicts → no-op until Task 3.4 adds the UX log + cancel sound
+  @discardableResult
+  private static func routeDispatchOutcome(
+    _ outcome: HotkeyDispatcher.DispatchOutcome,
+    send: Send<Action>
+  ) -> Bool {
+    switch outcome {
+    case let .fire(slot, slotAction):
+      switch slot {
+      case .batchHold, .batchDoubleTap:
+        MainActor.assumeIsolated {
+          send(.transcription(.dispatcherFired(slot: slot, action: slotAction)))
+        }
+        // Intercept only for stopRecording/cancel on a chord that has a key component —
+        // for modifier-only chords the key-up events should pass through.
+        return slotAction == .cancel
+      case .liveHold, .liveDoubleTap:
+        // Task 3.3 will wire these to LiveTranscriptionFeature.
+        return false
+      }
+
+    case let .discard(slot):
+      switch slot {
+      case .batchHold, .batchDoubleTap:
+        MainActor.assumeIsolated {
+          send(.transcription(.dispatcherFired(slot: slot, action: .cancel)))
+        }
+        return false
+      case .liveHold, .liveDoubleTap:
+        return false
+      }
+
+    case .conflict:
+      // Task 3.4 will add conflict UX (log + cancel sound).
+      return false
+
+    case .none:
+      return false
     }
   }
 
