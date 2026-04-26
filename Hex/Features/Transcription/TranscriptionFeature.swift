@@ -581,7 +581,7 @@ struct TranscriptionView: View {
   var status: TranscriptionIndicatorView.Status {
     if store.isTranscribing {
       return .transcribing
-    } else if store.isRecording {
+    } else if store.isRecording || store.isBatchLocked {
       return .recording
     } else if store.isPrewarming {
       return .prewarming
