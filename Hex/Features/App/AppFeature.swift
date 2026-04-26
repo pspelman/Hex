@@ -238,6 +238,10 @@ struct AppFeature {
   private func startHotkeyDispatchEffect() -> Effect<Action> {
     .run { [soundEffects] send in
       @Shared(.isSettingHotKey) var isSettingHotKey: Bool
+      @Shared(.isSettingLiveHoldHotkey) var isSettingLiveHoldHotkey: Bool
+      @Shared(.isSettingLiveDoubleTapHotkey) var isSettingLiveDoubleTapHotkey: Bool
+      @Shared(.isSettingBatchHoldHotkey) var isSettingBatchHoldHotkey: Bool
+      @Shared(.isSettingBatchDoubleTapHotkey) var isSettingBatchDoubleTapHotkey: Bool
       @Shared(.hexSettings) var hexSettings: HexSettings
 
       // Local dispatcher copy — mutated synchronously inside the callback.
@@ -245,8 +249,16 @@ struct AppFeature {
       var dispatcher = HotkeyDispatcher()
 
       let token = keyEventMonitor.handleInputEvent { inputEvent in
-        // Skip when the user is actively capturing a new hotkey chord.
-        if isSettingHotKey { return false }
+        // Skip when the user is actively capturing any hotkey chord.
+        // Covers all six HotKeyCaptureTarget cases so no dispatcher event
+        // leaks through while a slot row is in capture mode.
+        if isSettingHotKey
+            || isSettingLiveHoldHotkey
+            || isSettingLiveDoubleTapHotkey
+            || isSettingBatchHoldHotkey
+            || isSettingBatchDoubleTapHotkey {
+          return false
+        }
 
         // Keep the local dispatcher in sync with current settings.
         dispatcher.configure(.init(

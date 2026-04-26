@@ -12,7 +12,7 @@ import SwiftUI
 private let settingsLogger = HexLog.settings
 private typealias SettingsAudioPropertyListenerBlock = @convention(block) (UInt32, UnsafePointer<AudioObjectPropertyAddress>) -> Void
 
-private enum HotKeyCaptureTarget {
+private enum HotKeyCaptureTarget: CaseIterable {
   case recording
   case pasteLastTranscript
   case liveHold
@@ -121,8 +121,6 @@ struct SettingsFeature {
     case toggleSuperFastMode(Bool)
     case setUseClipboardPaste(Bool)
     case setCopyToClipboard(Bool)
-    case setDoubleTapLockEnabled(Bool)
-    case setUseDoubleTapOnly(Bool)
     case setMinimumKeyTime(Double)
     case setOutputLanguage(String?)
     case setSelectedMicrophoneID(String?)
@@ -130,7 +128,6 @@ struct SettingsFeature {
     case setSoundEffectsVolume(Double)
 
     // Live transcription
-    case setLiveTranscriptionEnabled(Bool)
     case setLiveTranscriptionChunkSize(LiveTranscriptionChunkSize)
     case checkLiveModelReady
     case liveModelReadyEvaluated(Bool)
@@ -185,7 +182,27 @@ struct SettingsFeature {
     }
   }
 
+  private func isCapturing(_ target: HotKeyCaptureTarget, state: State) -> Bool {
+    switch target {
+    case .recording: state.isSettingHotKey
+    case .pasteLastTranscript: state.isSettingPasteLastTranscriptHotkey
+    case .liveHold: state.isSettingLiveHoldHotkey
+    case .liveDoubleTap: state.isSettingLiveDoubleTapHotkey
+    case .batchHold: state.isSettingBatchHoldHotkey
+    case .batchDoubleTap: state.isSettingBatchDoubleTapHotkey
+    }
+  }
+
   private func beginCapture(_ target: HotKeyCaptureTarget, state: inout State) {
+    // Mutual exclusion: cancel any in-progress capture before starting a new one.
+    // Without this guard two rapid taps could set two flags simultaneously, leaving
+    // the second row visually stuck in "capturing" state until Settings closes.
+    for prior in HotKeyCaptureTarget.allCases where prior != target {
+      if isCapturing(prior, state: state) {
+        settingsLogger.notice("HotKey capture cancelling prior=\(String(describing: prior), privacy: .public) for new target=\(String(describing: target), privacy: .public)")
+        endCapture(prior, state: &state)
+      }
+    }
     settingsLogger.notice("HotKey capture begin target=\(String(describing: target), privacy: .public)")
     switch target {
     case .recording:
@@ -350,13 +367,6 @@ struct SettingsFeature {
     Reduce { state, action in
       switch action {
       case .binding:
-        let didNormalizeDoubleTapOnly = !state.hexSettings.doubleTapLockEnabled && state.hexSettings.useDoubleTapOnly
-        if didNormalizeDoubleTapOnly {
-          state.$hexSettings.withLock {
-            $0.useDoubleTapOnly = false
-          }
-        }
-
         return .none
 
       case .task:
@@ -664,21 +674,6 @@ struct SettingsFeature {
           await recording.warmUpRecorder()
         }
 
-      case let .setDoubleTapLockEnabled(enabled):
-        state.$hexSettings.withLock {
-          $0.doubleTapLockEnabled = enabled
-          if !enabled {
-            $0.useDoubleTapOnly = false
-          }
-        }
-        return .none
-
-      case let .setUseDoubleTapOnly(enabled):
-        state.$hexSettings.withLock {
-          $0.useDoubleTapOnly = enabled && $0.doubleTapLockEnabled
-        }
-        return .none
-
       case let .setMinimumKeyTime(value):
         state.$hexSettings.withLock { $0.minimumKeyTime = value }
         return .none
@@ -700,10 +695,6 @@ struct SettingsFeature {
       case let .setSoundEffectsVolume(volume):
         state.$hexSettings.withLock { $0.soundEffectsVolume = volume }
         return .none
-
-      case let .setLiveTranscriptionEnabled(enabled):
-        state.$hexSettings.withLock { $0.liveTranscriptionEnabled = enabled }
-        return enabled ? .send(.checkLiveModelReady) : .none
 
       case let .setLiveTranscriptionChunkSize(chunkSize):
         state.$hexSettings.withLock { $0.liveTranscriptionChunkSize = chunkSize }

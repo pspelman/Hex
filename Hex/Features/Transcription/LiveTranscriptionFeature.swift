@@ -61,7 +61,7 @@ struct LiveTranscriptionFeature {
 
     // MARK: - Hotkey routing
 
-    /// The configured hotkey was pressed (gated on liveTranscriptionEnabled).
+    /// The configured hotkey was pressed.
     case hotKeyPressed
     /// The configured hotkey was released.
     case hotKeyReleased
@@ -141,7 +141,6 @@ struct LiveTranscriptionFeature {
       case .hotKeyPressed:
         guard !state.isLive else { return .none }
         guard !state.isRemappingScratchpadFocused else { return .none }
-        guard state.hexSettings.liveTranscriptionEnabled else { return .none }
         guard state.isModelReady else {
           liveLogger.notice("Live hotkey pressed but EOU model not ready — initiating download")
           state.lastError = "Live transcription model is downloading…"

@@ -105,35 +105,28 @@ struct GeneralSectionView: View {
 
 			Label {
 				VStack(alignment: .leading, spacing: 6) {
-					Toggle(
-						"Live Transcription (experimental)",
-						isOn: Binding(
-							get: { store.hexSettings.liveTranscriptionEnabled },
-							set: { store.send(.setLiveTranscriptionEnabled($0)) }
-						)
-					)
+					Text("Live Transcription (experimental)")
+						.font(.body)
 					Text("Stream text into the focused field as you speak. Requires a separate ~250 MB model download and Accessibility permission.")
 						.settingsCaption()
 
-					if store.hexSettings.liveTranscriptionEnabled {
-						Picker(selection: Binding(
-							get: { store.hexSettings.liveTranscriptionChunkSize },
-							set: { store.send(.setLiveTranscriptionChunkSize($0)) }
-						)) {
-							Text("160 ms (lowest latency)").tag(LiveTranscriptionChunkSize.ms160)
-							Text("320 ms (balanced)").tag(LiveTranscriptionChunkSize.ms320)
-							Text("1600 ms (highest accuracy)").tag(LiveTranscriptionChunkSize.ms1600)
-						} label: {
-							Text("Chunk Size")
-								.lineLimit(1)
-								.fixedSize(horizontal: true, vertical: false)
-						}
-						.pickerStyle(.menu)
-
-						Divider()
-
-						liveModelStatusView
+					Picker(selection: Binding(
+						get: { store.hexSettings.liveTranscriptionChunkSize },
+						set: { store.send(.setLiveTranscriptionChunkSize($0)) }
+					)) {
+						Text("160 ms (lowest latency)").tag(LiveTranscriptionChunkSize.ms160)
+						Text("320 ms (balanced)").tag(LiveTranscriptionChunkSize.ms320)
+						Text("1600 ms (highest accuracy)").tag(LiveTranscriptionChunkSize.ms1600)
+					} label: {
+						Text("Chunk Size")
+							.lineLimit(1)
+							.fixedSize(horizontal: true, vertical: false)
 					}
+					.pickerStyle(.menu)
+
+					Divider()
+
+					liveModelStatusView
 				}
 			} icon: {
 				Image(systemName: "waveform.badge.mic")
