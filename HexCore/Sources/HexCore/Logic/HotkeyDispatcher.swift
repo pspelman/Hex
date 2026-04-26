@@ -5,7 +5,17 @@ import Foundation
 ///
 /// Owns one `HotKeyProcessor` per unique chord across the configured slots and
 /// translates the processor's low-level outputs into high-level slot-fire signals.
-public struct HotkeyDispatcher: Sendable {
+///
+/// ## Equatable semantics
+/// Two `HotkeyDispatcher` instances are considered equal when their `Configuration`
+/// is equal. The per-chord runtime state (`perChord`) is intentionally excluded
+/// because it is entirely derived from (and reset by) `configure(_:)`. This lets
+/// `AppFeature.State` — which TCA requires to be `Equatable` — hold a dispatcher
+/// without false "state changed" diffs on every key event.
+public struct HotkeyDispatcher: Sendable, Equatable {
+    public static func == (lhs: HotkeyDispatcher, rhs: HotkeyDispatcher) -> Bool {
+        lhs.configuration == rhs.configuration
+    }
 
     public enum Slot: Sendable, Equatable, Hashable, CaseIterable {
         case liveHold

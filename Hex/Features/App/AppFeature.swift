@@ -30,6 +30,13 @@ struct AppFeature {
 		@Shared(.hexSettings) var hexSettings: HexSettings
 		@Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
 
+    // Shared dispatcher — owns one HotKeyProcessor per unique chord across all four slots.
+    // Equatable conformance on HotkeyDispatcher compares only Configuration, which is
+    // sufficient for TCA's state-diffing. Per-chord runtime state is excluded deliberately.
+    // Wired to TranscriptionFeature (batch slots) in Task 3.2 and to
+    // LiveTranscriptionFeature (live slots) in Task 3.3.
+    var hotkeyDispatcher: HotkeyDispatcher = .init()
+
     // Permission state
     var microphonePermission: PermissionStatus = .notDetermined
     var accessibilityPermission: PermissionStatus = .notDetermined
@@ -45,6 +52,10 @@ struct AppFeature {
     case setActiveTab(ActiveTab)
     case task
     case pasteLastTranscript
+
+    // Builds a Configuration from current hexSettings and applies it to hotkeyDispatcher.
+    // Called at app launch and will be called after settings mutations in Phase 4.
+    case syncHotkeyDispatcher
 
     // Permission actions
     case checkPermissions
@@ -84,9 +95,20 @@ struct AppFeature {
       switch action {
       case .binding:
         return .none
-        
+
+      case .syncHotkeyDispatcher:
+        state.hotkeyDispatcher.configure(.init(
+          liveHoldHotkey: state.hexSettings.liveHoldHotkey,
+          liveDoubleTapHotkey: state.hexSettings.liveDoubleTapHotkey,
+          batchHoldHotkey: state.hexSettings.batchHoldHotkey,
+          batchDoubleTapHotkey: state.hexSettings.batchDoubleTapHotkey,
+          minimumKeyTime: state.hexSettings.minimumKeyTime
+        ))
+        return .none
+
       case .task:
         return .merge(
+          .send(.syncHotkeyDispatcher),
           startPasteLastTranscriptMonitoring(),
           ensureSelectedModelReadiness(),
           startPermissionMonitoring(),
