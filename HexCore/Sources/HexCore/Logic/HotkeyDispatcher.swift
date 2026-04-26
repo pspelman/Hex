@@ -64,6 +64,54 @@ public struct HotkeyDispatcher: Sendable {
             self.minimumKeyTime = minimumKeyTime
         }
     }
+
+    // MARK: - Per-chord runtime state
+
+    /// Per-chord runtime state.
+    private struct PerChordState: @unchecked Sendable {
+        var processor: HotKeyProcessor
+        /// The slot whose `.startRecording` was last fired — used to route the next `.stopRecording`.
+        var activeSlot: HotkeyDispatcher.Slot?
+    }
+
+    private var configuration: Configuration = Configuration()
+    private var perChord: [HotKey: PerChordState] = [:]
+
+    public init() {}
+
+    /// Re-configures the dispatcher's slot bindings.
+    ///
+    /// Idempotent: re-applying the same configuration is a no-op. When bindings change,
+    /// stale processors for chords no longer present are dropped (any in-flight session for
+    /// those chords is implicitly cancelled by the absence of further dispatch).
+    public mutating func configure(_ configuration: Configuration) {
+        self.configuration = configuration
+        let bindings = configuration.bindings()
+
+        // Drop processors for chords no longer bound.
+        perChord = perChord.filter { bindings.keys.contains($0.key) }
+
+        // Add or update processors for each present chord.
+        for (chord, slots) in bindings {
+            let allowsDoubleTap = slots.contains { $0.pattern == .doubleTap }
+            let allowsPressHold = slots.contains { $0.pattern == .pressAndHold }
+            // useDoubleTapOnly == true means: chord is bound only to a doubleTap slot, not press-hold
+            let useDoubleTapOnly = allowsDoubleTap && !allowsPressHold
+
+            if perChord[chord] != nil {
+                perChord[chord]?.processor.hotkey = chord
+                perChord[chord]?.processor.doubleTapLockEnabled = allowsDoubleTap
+                perChord[chord]?.processor.useDoubleTapOnly = useDoubleTapOnly
+                perChord[chord]?.processor.minimumKeyTime = configuration.minimumKeyTime
+            } else {
+                var processor = HotKeyProcessor(hotkey: chord)
+                processor.doubleTapLockEnabled = allowsDoubleTap
+                processor.useDoubleTapOnly = useDoubleTapOnly
+                processor.minimumKeyTime = configuration.minimumKeyTime
+                perChord[chord] = PerChordState(processor: processor, activeSlot: nil)
+            }
+        }
+    }
 }
 
 extension HotkeyDispatcher.Configuration {
