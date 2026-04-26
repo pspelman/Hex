@@ -330,16 +330,14 @@ struct AppFeature {
         return false
       }
 
-    case let .discard(slot):
-      switch slot {
-      case .batchHold, .batchDoubleTap:
-        MainActor.assumeIsolated {
-          send(.transcription(.dispatcherFired(slot: slot, action: .cancel)))
-        }
-        return false
-      case .liveHold, .liveDoubleTap:
-        return false
+    case .discard:
+      // Sub-threshold tap — silently discard any in-flight batch session.
+      // Uses the existing .discard action (no cancel sound) rather than .cancel.
+      // Live-slot discards are ignored until Task 3.3.
+      MainActor.assumeIsolated {
+        send(.transcription(.discard))
       }
+      return false
 
     case .conflict:
       // Task 3.4 will add conflict UX (log + cancel sound).
