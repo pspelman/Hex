@@ -136,6 +136,50 @@ final class HotkeyDispatcherTests: XCTestCase {
 		XCTAssertEqual(thirdPress, .fire(slot: .batchDoubleTap, action: .stopRecording))
 	}
 
+	/// Verifies that a sub-threshold mouse click discards the active session, and that a
+	/// post-threshold click is silently ignored (only ESC can cancel after the threshold).
+	///
+	/// `HotKeyProcessor.processMouseClick()` returns `.discard` when the elapsed time since
+	/// press is less than the modifier-only minimum duration (max(minimumKeyTime, 0.3s)), and
+	/// `nil` after the threshold. It never returns `.cancel` — that output is ESC-only.
+	func testMouseClickDiscardsSubThresholdSession() {
+		let opt = HotKey(key: nil, modifiers: [.option])
+		var dispatcher = HotkeyDispatcher()
+		dispatcher.configure(HotkeyDispatcher.Configuration(batchHoldHotkey: opt))
+
+		let t0 = Date(timeIntervalSinceReferenceDate: 0)
+
+		// Start a session
+		_ = dispatcher.process(keyEvent: KeyEvent(key: nil, modifiers: [.option]), now: t0)
+
+		// Sub-threshold click (< 0.3s modifier-only minimum) → should discard silently
+		let subThresholdOutcome = dispatcher.processMouseClick(now: t0.addingTimeInterval(0.1))
+		if case let .discard(slot) = subThresholdOutcome {
+			XCTAssertEqual(slot, .batchHold)
+		} else {
+			XCTFail("Expected .discard(batchHold) for sub-threshold click, got \(subThresholdOutcome)")
+		}
+	}
+
+	/// Verifies that a post-threshold mouse click is ignored (returns .none).
+	///
+	/// After the 0.3s modifier-only threshold, `processMouseClick()` returns nil and the
+	/// recording continues. Only ESC can cancel it at that point.
+	func testMouseClickIgnoredAfterThreshold() {
+		let opt = HotKey(key: nil, modifiers: [.option])
+		var dispatcher = HotkeyDispatcher()
+		dispatcher.configure(HotkeyDispatcher.Configuration(batchHoldHotkey: opt))
+
+		let t0 = Date(timeIntervalSinceReferenceDate: 0)
+
+		// Start a session
+		_ = dispatcher.process(keyEvent: KeyEvent(key: nil, modifiers: [.option]), now: t0)
+
+		// Post-threshold click (> 0.3s modifier-only minimum) → should be ignored
+		let postThresholdOutcome = dispatcher.processMouseClick(now: t0.addingTimeInterval(1.0))
+		XCTAssertEqual(postThresholdOutcome, .none)
+	}
+
 	func testConflictReportedWhenSamePatternBoundToTwoSlots() {
 		let opt = HotKey(key: nil, modifiers: [.option])
 		var dispatcher = HotkeyDispatcher()

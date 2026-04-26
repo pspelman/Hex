@@ -225,6 +225,57 @@ extension HotkeyDispatcher {
     }
 }
 
+extension HotkeyDispatcher {
+    /// Routes a mouse-click event through the dispatcher.
+    ///
+    /// For modifier-only hotkeys a sub-threshold mouse click discards the in-flight
+    /// session (e.g. Option+click opens a Finder window — we don't want to keep
+    /// recording). After the threshold the click is ignored and only ESC can cancel.
+    ///
+    /// - Parameter now: The clock instant of the click (caller-supplied for testability).
+    /// - Returns:
+    ///   - `.discard(slot:)` when a sub-threshold session is being silently dropped.
+    ///   - `.none` when no action is needed.
+    ///
+    /// Note: `HotKeyProcessor.processMouseClick()` can only emit `.discard` or `nil` —
+    /// it never emits `.cancel` (that is ESC-only). Mouse clicks therefore never produce
+    /// a `.fire(action: .cancel)` outcome.
+    public mutating func processMouseClick(now: Date) -> DispatchOutcome {
+        guard !perChord.isEmpty else { return .none }
+        var outcome: DispatchOutcome = .none
+
+        for chord in perChord.keys {
+            guard var state = perChord[chord] else { continue }
+
+            let output: HotKeyProcessor.Output? = withDependencies {
+                $0.date.now = now
+            } operation: {
+                state.processor.processMouseClick()
+            }
+
+            switch output {
+            case .cancel:
+                // processMouseClick() never emits .cancel in the current implementation,
+                // but handle it defensively: route to the active slot as a cancel fire.
+                if let active = state.activeSlot {
+                    state.activeSlot = nil
+                    outcome = .fire(slot: active, action: .cancel)
+                }
+            case .discard:
+                if let active = state.activeSlot {
+                    state.activeSlot = nil
+                    outcome = .discard(slot: active)
+                }
+            case .startRecording, .stopRecording, .none:
+                break // mouse clicks should never start or stop on their own
+            }
+
+            perChord[chord] = state
+        }
+        return outcome
+    }
+}
+
 extension HotkeyDispatcher.Configuration {
 	/// For each unique chord present in the configuration, the set of slots bound to it.
 	/// Used internally to instantiate one HotKeyProcessor per unique chord.
