@@ -30,13 +30,6 @@ struct AppFeature {
 		@Shared(.hexSettings) var hexSettings: HexSettings
 		@Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
 
-    // Shared dispatcher — owns one HotKeyProcessor per unique chord across all four slots.
-    // Equatable conformance on HotkeyDispatcher compares only Configuration, which is
-    // sufficient for TCA's state-diffing. Per-chord runtime state is excluded deliberately.
-    // Wired to TranscriptionFeature (batch slots) in Task 3.2 and to
-    // LiveTranscriptionFeature (live slots) in Task 3.3.
-    var hotkeyDispatcher: HotkeyDispatcher = .init()
-
     // Permission state
     var microphonePermission: PermissionStatus = .notDetermined
     var accessibilityPermission: PermissionStatus = .notDetermined
@@ -52,10 +45,6 @@ struct AppFeature {
     case setActiveTab(ActiveTab)
     case task
     case pasteLastTranscript
-
-    // Builds a Configuration from current hexSettings and applies it to hotkeyDispatcher.
-    // Called at app launch and will be called after settings mutations in Phase 4.
-    case syncHotkeyDispatcher
 
     // Permission actions
     case checkPermissions
@@ -96,19 +85,8 @@ struct AppFeature {
       case .binding:
         return .none
 
-      case .syncHotkeyDispatcher:
-        state.hotkeyDispatcher.configure(.init(
-          liveHoldHotkey: state.hexSettings.liveHoldHotkey,
-          liveDoubleTapHotkey: state.hexSettings.liveDoubleTapHotkey,
-          batchHoldHotkey: state.hexSettings.batchHoldHotkey,
-          batchDoubleTapHotkey: state.hexSettings.batchDoubleTapHotkey,
-          minimumKeyTime: state.hexSettings.minimumKeyTime
-        ))
-        return .none
-
       case .task:
         return .merge(
-          .send(.syncHotkeyDispatcher),
           startPasteLastTranscriptMonitoring(),
           startHotkeyDispatchEffect(),
           ensureSelectedModelReadiness(),
@@ -319,6 +297,10 @@ struct AppFeature {
     case let .fire(slot, slotAction):
       switch slot {
       case .batchHold, .batchDoubleTap:
+        // keyEventMonitor's callback runs on the main thread (the CGEvent tap is added
+        // to CFRunLoopGetMain in KeyEventMonitorClient — see "addToRunLoop"). Therefore
+        // MainActor.assumeIsolated is safe; if that invariant is ever violated, this
+        // will trap at runtime.
         MainActor.assumeIsolated {
           send(.transcription(.dispatcherFired(slot: slot, action: slotAction)))
         }
@@ -330,12 +312,17 @@ struct AppFeature {
         return false
       }
 
-    case .discard:
-      // Sub-threshold tap — silently discard any in-flight batch session.
+    case let .discard(slot):
+      // Sub-threshold tap — silently discard any in-flight session.
       // Uses the existing .discard action (no cancel sound) rather than .cancel.
-      // Live-slot discards are ignored until Task 3.3.
-      MainActor.assumeIsolated {
-        send(.transcription(.discard))
+      switch slot {
+      case .batchHold, .batchDoubleTap:
+        MainActor.assumeIsolated {
+          send(.transcription(.discard))
+        }
+      case .liveHold, .liveDoubleTap:
+        // Task 3.3 will wire live-slot discards to LiveTranscriptionFeature.
+        break
       }
       return false
 
