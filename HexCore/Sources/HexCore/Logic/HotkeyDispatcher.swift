@@ -127,9 +127,12 @@ extension HotkeyDispatcher {
 
         var outcome: DispatchOutcome = .none
 
+        // Each KeyEvent is expected to match at most one chord, so this loop
+        // produces at most one non-.none outcome — there is no "last writer wins"
+        // race in practice.
         for chord in perChord.keys {
             // Snapshot the processor, mutate it under a controlled clock, write back.
-            var state = perChord[chord]!
+            guard var state = perChord[chord] else { continue }
             let output: HotKeyProcessor.Output? = withDependencies {
                 $0.date.now = now
             } operation: {
