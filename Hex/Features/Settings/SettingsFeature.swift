@@ -15,6 +15,10 @@ private typealias SettingsAudioPropertyListenerBlock = @convention(block) (UInt3
 private enum HotKeyCaptureTarget {
   case recording
   case pasteLastTranscript
+  case liveHold
+  case liveDoubleTap
+  case batchHold
+  case batchDoubleTap
 }
 
 extension SharedReaderKey
@@ -23,13 +27,29 @@ extension SharedReaderKey
   static var isSettingHotKey: Self {
     Self[.inMemory("isSettingHotKey"), default: false]
   }
-  
+
   static var isSettingPasteLastTranscriptHotkey: Self {
     Self[.inMemory("isSettingPasteLastTranscriptHotkey"), default: false]
   }
 
   static var isRemappingScratchpadFocused: Self {
     Self[.inMemory("isRemappingScratchpadFocused"), default: false]
+  }
+
+  static var isSettingLiveHoldHotkey: Self {
+    Self[.inMemory("isSettingLiveHoldHotkey"), default: false]
+  }
+
+  static var isSettingLiveDoubleTapHotkey: Self {
+    Self[.inMemory("isSettingLiveDoubleTapHotkey"), default: false]
+  }
+
+  static var isSettingBatchHoldHotkey: Self {
+    Self[.inMemory("isSettingBatchHoldHotkey"), default: false]
+  }
+
+  static var isSettingBatchDoubleTapHotkey: Self {
+    Self[.inMemory("isSettingBatchDoubleTapHotkey"), default: false]
   }
 }
 
@@ -43,12 +63,20 @@ struct SettingsFeature {
     @Shared(.isSettingHotKey) var isSettingHotKey: Bool = false
     @Shared(.isSettingPasteLastTranscriptHotkey) var isSettingPasteLastTranscriptHotkey: Bool = false
     @Shared(.isRemappingScratchpadFocused) var isRemappingScratchpadFocused: Bool = false
+    @Shared(.isSettingLiveHoldHotkey) var isSettingLiveHoldHotkey: Bool = false
+    @Shared(.isSettingLiveDoubleTapHotkey) var isSettingLiveDoubleTapHotkey: Bool = false
+    @Shared(.isSettingBatchHoldHotkey) var isSettingBatchHoldHotkey: Bool = false
+    @Shared(.isSettingBatchDoubleTapHotkey) var isSettingBatchDoubleTapHotkey: Bool = false
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
     @Shared(.hotkeyPermissionState) var hotkeyPermissionState: HotkeyPermissionState
 
     var languages: IdentifiedArrayOf<Language> = []
     var currentModifiers: Modifiers = .init(modifiers: [])
     var currentPasteLastModifiers: Modifiers = .init(modifiers: [])
+    var currentLiveHoldModifiers: Modifiers = .init(modifiers: [])
+    var currentLiveDoubleTapModifiers: Modifiers = .init(modifiers: [])
+    var currentBatchHoldModifiers: Modifiers = .init(modifiers: [])
+    var currentBatchDoubleTapModifiers: Modifiers = .init(modifiers: [])
     var remappingScratchpadText: String = ""
     
     // Available microphones
@@ -76,6 +104,16 @@ struct SettingsFeature {
     case startSettingPasteLastTranscriptHotkey
     case clearPasteLastTranscriptHotkey
     case keyEvent(KeyEvent)
+
+    // Four-slot hotkey capture
+    case startSettingLiveHoldHotkey
+    case startSettingLiveDoubleTapHotkey
+    case startSettingBatchHoldHotkey
+    case startSettingBatchDoubleTapHotkey
+    case clearLiveHoldHotkey
+    case clearLiveDoubleTapHotkey
+    case clearBatchHoldHotkey
+    case clearBatchDoubleTapHotkey
     case toggleOpenOnLogin(Bool)
     case toggleShowDockIcon(Bool)
     case togglePreventSystemSleep(Bool)
@@ -156,6 +194,18 @@ struct SettingsFeature {
     case .pasteLastTranscript:
       state.$isSettingPasteLastTranscriptHotkey.withLock { $0 = true }
       state.currentPasteLastModifiers = .init(modifiers: [])
+    case .liveHold:
+      state.$isSettingLiveHoldHotkey.withLock { $0 = true }
+      state.currentLiveHoldModifiers = .init(modifiers: [])
+    case .liveDoubleTap:
+      state.$isSettingLiveDoubleTapHotkey.withLock { $0 = true }
+      state.currentLiveDoubleTapModifiers = .init(modifiers: [])
+    case .batchHold:
+      state.$isSettingBatchHoldHotkey.withLock { $0 = true }
+      state.currentBatchHoldModifiers = .init(modifiers: [])
+    case .batchDoubleTap:
+      state.$isSettingBatchDoubleTapHotkey.withLock { $0 = true }
+      state.currentBatchDoubleTapModifiers = .init(modifiers: [])
     }
   }
 
@@ -168,6 +218,18 @@ struct SettingsFeature {
     case .pasteLastTranscript:
       state.$isSettingPasteLastTranscriptHotkey.withLock { $0 = false }
       state.currentPasteLastModifiers = .init(modifiers: [])
+    case .liveHold:
+      state.$isSettingLiveHoldHotkey.withLock { $0 = false }
+      state.currentLiveHoldModifiers = .init(modifiers: [])
+    case .liveDoubleTap:
+      state.$isSettingLiveDoubleTapHotkey.withLock { $0 = false }
+      state.currentLiveDoubleTapModifiers = .init(modifiers: [])
+    case .batchHold:
+      state.$isSettingBatchHoldHotkey.withLock { $0 = false }
+      state.currentBatchHoldModifiers = .init(modifiers: [])
+    case .batchDoubleTap:
+      state.$isSettingBatchDoubleTapHotkey.withLock { $0 = false }
+      state.currentBatchDoubleTapModifiers = .init(modifiers: [])
     }
   }
 
@@ -177,6 +239,14 @@ struct SettingsFeature {
       state.currentModifiers
     case .pasteLastTranscript:
       state.currentPasteLastModifiers
+    case .liveHold:
+      state.currentLiveHoldModifiers
+    case .liveDoubleTap:
+      state.currentLiveDoubleTapModifiers
+    case .batchHold:
+      state.currentBatchHoldModifiers
+    case .batchDoubleTap:
+      state.currentBatchDoubleTapModifiers
     }
   }
 
@@ -186,6 +256,14 @@ struct SettingsFeature {
       state.currentModifiers = modifiers
     case .pasteLastTranscript:
       state.currentPasteLastModifiers = modifiers
+    case .liveHold:
+      state.currentLiveHoldModifiers = modifiers
+    case .liveDoubleTap:
+      state.currentLiveDoubleTapModifiers = modifiers
+    case .batchHold:
+      state.currentBatchHoldModifiers = modifiers
+    case .batchDoubleTap:
+      state.currentBatchDoubleTapModifiers = modifiers
     }
   }
 
@@ -200,6 +278,22 @@ struct SettingsFeature {
       guard let key else { return }
       state.$hexSettings.withLock {
         $0.pasteLastTranscriptHotkey = HotKey(key: key, modifiers: modifiers.erasingSides())
+      }
+    case .liveHold:
+      state.$hexSettings.withLock {
+        $0.liveHoldHotkey = HotKey(key: key, modifiers: modifiers.erasingSides())
+      }
+    case .liveDoubleTap:
+      state.$hexSettings.withLock {
+        $0.liveDoubleTapHotkey = HotKey(key: key, modifiers: modifiers.erasingSides())
+      }
+    case .batchHold:
+      state.$hexSettings.withLock {
+        $0.batchHoldHotkey = HotKey(key: key, modifiers: modifiers.erasingSides())
+      }
+    case .batchDoubleTap:
+      state.$hexSettings.withLock {
+        $0.batchDoubleTapHotkey = HotKey(key: key, modifiers: modifiers.erasingSides())
       }
     }
   }
@@ -229,7 +323,16 @@ struct SettingsFeature {
     // modifier. Without this guard, a stray flagsChanged event arriving with empty modifiers
     // (e.g. caps lock toggling, or releasing a key that was already held when capture started)
     // would immediately end the session and persist an empty hotkey.
-    if target == .recording, keyEvent.modifiers.isEmpty, !updatedModifiers.isEmpty {
+    //
+    // This guard covers all targets that support modifier-only hotkeys (recording + all four slots).
+    let supportsModifierOnly: Bool
+    switch target {
+    case .recording, .liveHold, .liveDoubleTap, .batchHold, .batchDoubleTap:
+      supportsModifierOnly = true
+    case .pasteLastTranscript:
+      supportsModifierOnly = false
+    }
+    if supportsModifierOnly, keyEvent.modifiers.isEmpty, !updatedModifiers.isEmpty {
       applyCapturedHotKey(key: nil, modifiers: updatedModifiers, for: target, state: &state)
       endCapture(target, state: &state)
     }
@@ -464,12 +567,56 @@ struct SettingsFeature {
       case .startSettingPasteLastTranscriptHotkey:
         beginCapture(.pasteLastTranscript, state: &state)
         return .none
-        
+
       case .clearPasteLastTranscriptHotkey:
         state.$hexSettings.withLock { $0.pasteLastTranscriptHotkey = nil }
         return .none
 
+      case .startSettingLiveHoldHotkey:
+        beginCapture(.liveHold, state: &state)
+        return .none
+
+      case .startSettingLiveDoubleTapHotkey:
+        beginCapture(.liveDoubleTap, state: &state)
+        return .none
+
+      case .startSettingBatchHoldHotkey:
+        beginCapture(.batchHold, state: &state)
+        return .none
+
+      case .startSettingBatchDoubleTapHotkey:
+        beginCapture(.batchDoubleTap, state: &state)
+        return .none
+
+      case .clearLiveHoldHotkey:
+        state.$hexSettings.withLock { $0.liveHoldHotkey = nil }
+        return .none
+
+      case .clearLiveDoubleTapHotkey:
+        state.$hexSettings.withLock { $0.liveDoubleTapHotkey = nil }
+        return .none
+
+      case .clearBatchHoldHotkey:
+        state.$hexSettings.withLock { $0.batchHoldHotkey = nil }
+        return .none
+
+      case .clearBatchDoubleTapHotkey:
+        state.$hexSettings.withLock { $0.batchDoubleTapHotkey = nil }
+        return .none
+
       case let .keyEvent(keyEvent):
+        if state.isSettingLiveHoldHotkey {
+          return handleCapture(keyEvent, for: .liveHold, state: &state)
+        }
+        if state.isSettingLiveDoubleTapHotkey {
+          return handleCapture(keyEvent, for: .liveDoubleTap, state: &state)
+        }
+        if state.isSettingBatchHoldHotkey {
+          return handleCapture(keyEvent, for: .batchHold, state: &state)
+        }
+        if state.isSettingBatchDoubleTapHotkey {
+          return handleCapture(keyEvent, for: .batchDoubleTap, state: &state)
+        }
         if state.isSettingPasteLastTranscriptHotkey {
           return handleCapture(keyEvent, for: .pasteLastTranscript, state: &state)
         }

@@ -29,7 +29,7 @@ struct SettingsView: View {
 				LanguageSectionView(store: store)
 			}
 
-			HotKeySectionView(store: store)
+			FourSlotHotKeySectionView(store: store)
           
 			if microphonePermission == .granted {
 				MicrophoneSelectionSectionView(store: store)
