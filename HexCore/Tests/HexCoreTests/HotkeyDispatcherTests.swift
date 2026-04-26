@@ -135,4 +135,24 @@ final class HotkeyDispatcherTests: XCTestCase {
 		let thirdPress = dispatcher.process(keyEvent: press, now: t0.addingTimeInterval(1.0))
 		XCTAssertEqual(thirdPress, .fire(slot: .batchDoubleTap, action: .stopRecording))
 	}
+
+	func testConflictReportedWhenSamePatternBoundToTwoSlots() {
+		let opt = HotKey(key: nil, modifiers: [.option])
+		var dispatcher = HotkeyDispatcher()
+		dispatcher.configure(HotkeyDispatcher.Configuration(
+			liveHoldHotkey: opt,
+			batchHoldHotkey: opt
+		))
+
+		let t0 = Date(timeIntervalSinceReferenceDate: 0)
+		let press = KeyEvent(key: nil, modifiers: [.option])
+		let outcome = dispatcher.process(keyEvent: press, now: t0)
+
+		if case let .conflict(slots, action) = outcome {
+			XCTAssertEqual(slots, [.liveHold, .batchHold])
+			XCTAssertEqual(action, .startRecording)
+		} else {
+			XCTFail("Expected conflict outcome, got \(outcome)")
+		}
+	}
 }
