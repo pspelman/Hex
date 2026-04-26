@@ -245,6 +245,7 @@ struct LiveTranscriptionFeature {
         // until finishSession drains the last partial through the stream, which exits
         // the `for await` loop and emits .streamFinished.
         state.isLive = false
+        state.isLiveLocked = false
         state.liveStartedAt = nil
         state.sourceAppBundleID = nil
         state.sourceAppName = nil
@@ -262,6 +263,7 @@ struct LiveTranscriptionFeature {
 
       case let .abortSession(reason):
         state.isLive = false
+        state.isLiveLocked = false
         state.liveStartedAt = nil
         state.sourceAppBundleID = nil
         state.sourceAppName = nil
@@ -361,6 +363,7 @@ struct LiveTranscriptionFeature {
 
       case .streamFinished:
         state.isLive = false
+        state.isLiveLocked = false
         liveLogger.notice("Stream finished cleanly")
         return .none
 
@@ -430,8 +433,9 @@ private extension LiveTranscriptionFeature {
     // ── Live hold: normal press-and-hold start ───────────────────────────────
     case (.liveHold, .startRecording):
       // Invariant #8: hotKeyPressed claims state.isLive = true synchronously.
-      state.isLiveLocked = false
+      // Clear isLiveLocked only when we are actually starting a new session.
       if state.isLive { return .none }
+      state.isLiveLocked = false
       return .send(.hotKeyPressed)
 
     // ── Live double-tap: promote session to locked mode ──────────────────────

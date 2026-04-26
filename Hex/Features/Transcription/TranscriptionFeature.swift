@@ -319,7 +319,8 @@ private extension TranscriptionFeature {
 
   func handleStopRecording(_ state: inout State) -> Effect<Action> {
     state.isRecording = false
-    
+    state.isBatchLocked = false
+
     let stopTime = now
     let startTime = state.recordingStartTime
     let duration = startTime.map { stopTime.timeIntervalSince($0) } ?? 0
@@ -537,6 +538,7 @@ private extension TranscriptionFeature {
     state.isTranscribing = false
     state.isRecording = false
     state.isPrewarming = false
+    state.isBatchLocked = false
 
     return .merge(
       .cancel(id: CancelID.transcription),
@@ -556,6 +558,7 @@ private extension TranscriptionFeature {
   func handleDiscard(_ state: inout State) -> Effect<Action> {
     state.isRecording = false
     state.isPrewarming = false
+    state.isBatchLocked = false
 
     // Silently discard - no sound effect
     return .run { [sleepManagement] _ in
