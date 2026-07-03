@@ -71,9 +71,9 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertFalse(settings.liveTranscriptionEnabled)
 	}
 
-	func testDefaultSettings_liveTranscriptionChunkSizeIsMs320() {
+	func testDefaultSettings_liveTranscriptionChunkSizeIsMs1600() {
 		let settings = HexSettings()
-		XCTAssertEqual(settings.liveTranscriptionChunkSize, .ms320)
+		XCTAssertEqual(settings.liveTranscriptionChunkSize, .ms1600)
 	}
 
 	func testDecode_omittingNewKeys_returnsDefaults() throws {
@@ -86,7 +86,7 @@ final class HexSettingsMigrationTests: XCTestCase {
 
 		// Then — both fields default gracefully
 		XCTAssertFalse(decoded.liveTranscriptionEnabled)
-		XCTAssertEqual(decoded.liveTranscriptionChunkSize, .ms320)
+		XCTAssertEqual(decoded.liveTranscriptionChunkSize, .ms1600)
 	}
 
 	func testDecode_withNewKeysPresent_returnsThoseValues() throws {
