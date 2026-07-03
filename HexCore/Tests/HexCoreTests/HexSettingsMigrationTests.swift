@@ -151,6 +151,36 @@ final class HexSettingsMigrationTests: XCTestCase {
 		XCTAssertNil(decoded.batchDoubleTapHotkey)
 	}
 
+	// MARK: - Pause-hotkeys toggle hotkey
+
+	func testFreshInstallHasNoPauseHotkeysHotkey() {
+		let settings = HexSettings()
+		XCTAssertNil(settings.pauseHotkeysHotkey)
+	}
+
+	func testDecode_omittingPauseHotkeysHotkey_returnsNil() throws {
+		let data = try XCTUnwrap("{}".data(using: .utf8))
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
+		XCTAssertNil(decoded.pauseHotkeysHotkey)
+	}
+
+	func testDecode_withPauseHotkeysHotkeyPresent_returnsThatValue() throws {
+		var settings = HexSettings()
+		settings.pauseHotkeysHotkey = HotKey(key: .h, modifiers: [.option, .shift])
+		let data = try JSONEncoder().encode(settings)
+
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
+
+		XCTAssertEqual(decoded.pauseHotkeysHotkey, HotKey(key: .h, modifiers: [.option, .shift]))
+		XCTAssertEqual(decoded, settings)
+	}
+
+	func testV1FixtureFallsBackToNilPauseHotkeysHotkey() throws {
+		let data = try loadFixture(named: "v1")
+		let decoded = try JSONDecoder().decode(HexSettings.self, from: data)
+		XCTAssertNil(decoded.pauseHotkeysHotkey)
+	}
+
 	private func loadFixture(named name: String) throws -> Data {
 		guard let url = Bundle.module.url(
 			forResource: name,

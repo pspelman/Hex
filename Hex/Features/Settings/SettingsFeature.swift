@@ -19,6 +19,7 @@ private enum HotKeyCaptureTarget: CaseIterable {
   case liveDoubleTap
   case batchHold
   case batchDoubleTap
+  case pauseHotkeys
 }
 
 extension SharedReaderKey
@@ -51,6 +52,10 @@ extension SharedReaderKey
   static var isSettingBatchDoubleTapHotkey: Self {
     Self[.inMemory("isSettingBatchDoubleTapHotkey"), default: false]
   }
+
+  static var isSettingPauseHotkeysHotkey: Self {
+    Self[.inMemory("isSettingPauseHotkeysHotkey"), default: false]
+  }
 }
 
 // MARK: - Settings Feature
@@ -67,6 +72,7 @@ struct SettingsFeature {
     @Shared(.isSettingLiveDoubleTapHotkey) var isSettingLiveDoubleTapHotkey: Bool = false
     @Shared(.isSettingBatchHoldHotkey) var isSettingBatchHoldHotkey: Bool = false
     @Shared(.isSettingBatchDoubleTapHotkey) var isSettingBatchDoubleTapHotkey: Bool = false
+    @Shared(.isSettingPauseHotkeysHotkey) var isSettingPauseHotkeysHotkey: Bool = false
     @Shared(.transcriptionHistory) var transcriptionHistory: TranscriptionHistory
     @Shared(.hotkeyPermissionState) var hotkeyPermissionState: HotkeyPermissionState
 
@@ -77,6 +83,7 @@ struct SettingsFeature {
     var currentLiveDoubleTapModifiers: Modifiers = .init(modifiers: [])
     var currentBatchHoldModifiers: Modifiers = .init(modifiers: [])
     var currentBatchDoubleTapModifiers: Modifiers = .init(modifiers: [])
+    var currentPauseHotkeysModifiers: Modifiers = .init(modifiers: [])
     var remappingScratchpadText: String = ""
     
     // Available microphones
@@ -114,6 +121,8 @@ struct SettingsFeature {
     case clearLiveDoubleTapHotkey
     case clearBatchHoldHotkey
     case clearBatchDoubleTapHotkey
+    case startSettingPauseHotkeysHotkey
+    case clearPauseHotkeysHotkey
     case toggleOpenOnLogin(Bool)
     case toggleShowDockIcon(Bool)
     case togglePreventSystemSleep(Bool)
@@ -190,6 +199,7 @@ struct SettingsFeature {
     case .liveDoubleTap: state.isSettingLiveDoubleTapHotkey
     case .batchHold: state.isSettingBatchHoldHotkey
     case .batchDoubleTap: state.isSettingBatchDoubleTapHotkey
+    case .pauseHotkeys: state.isSettingPauseHotkeysHotkey
     }
   }
 
@@ -223,6 +233,9 @@ struct SettingsFeature {
     case .batchDoubleTap:
       state.$isSettingBatchDoubleTapHotkey.withLock { $0 = true }
       state.currentBatchDoubleTapModifiers = .init(modifiers: [])
+    case .pauseHotkeys:
+      state.$isSettingPauseHotkeysHotkey.withLock { $0 = true }
+      state.currentPauseHotkeysModifiers = .init(modifiers: [])
     }
   }
 
@@ -247,6 +260,9 @@ struct SettingsFeature {
     case .batchDoubleTap:
       state.$isSettingBatchDoubleTapHotkey.withLock { $0 = false }
       state.currentBatchDoubleTapModifiers = .init(modifiers: [])
+    case .pauseHotkeys:
+      state.$isSettingPauseHotkeysHotkey.withLock { $0 = false }
+      state.currentPauseHotkeysModifiers = .init(modifiers: [])
     }
   }
 
@@ -264,6 +280,8 @@ struct SettingsFeature {
       state.currentBatchHoldModifiers
     case .batchDoubleTap:
       state.currentBatchDoubleTapModifiers
+    case .pauseHotkeys:
+      state.currentPauseHotkeysModifiers
     }
   }
 
@@ -281,6 +299,8 @@ struct SettingsFeature {
       state.currentBatchHoldModifiers = modifiers
     case .batchDoubleTap:
       state.currentBatchDoubleTapModifiers = modifiers
+    case .pauseHotkeys:
+      state.currentPauseHotkeysModifiers = modifiers
     }
   }
 
@@ -312,6 +332,11 @@ struct SettingsFeature {
       state.$hexSettings.withLock {
         $0.batchDoubleTapHotkey = HotKey(key: key, modifiers: modifiers.erasingSides())
       }
+    case .pauseHotkeys:
+      guard let key else { return }
+      state.$hexSettings.withLock {
+        $0.pauseHotkeysHotkey = HotKey(key: key, modifiers: modifiers.erasingSides())
+      }
     }
   }
 
@@ -326,7 +351,7 @@ struct SettingsFeature {
     let updatedModifiers = keyEvent.modifiers.union(captureModifiers(for: target, state: state))
     updateCaptureModifiers(updatedModifiers, for: target, state: &state)
 
-    if target == .pasteLastTranscript, keyEvent.key != nil, updatedModifiers.isEmpty {
+    if target == .pasteLastTranscript || target == .pauseHotkeys, keyEvent.key != nil, updatedModifiers.isEmpty {
       return .none
     }
 
@@ -346,7 +371,7 @@ struct SettingsFeature {
     switch target {
     case .recording, .liveHold, .liveDoubleTap, .batchHold, .batchDoubleTap:
       supportsModifierOnly = true
-    case .pasteLastTranscript:
+    case .pasteLastTranscript, .pauseHotkeys:
       supportsModifierOnly = false
     }
     if supportsModifierOnly, keyEvent.modifiers.isEmpty, !updatedModifiers.isEmpty {
@@ -614,6 +639,14 @@ struct SettingsFeature {
         state.$hexSettings.withLock { $0.batchDoubleTapHotkey = nil }
         return .none
 
+      case .startSettingPauseHotkeysHotkey:
+        beginCapture(.pauseHotkeys, state: &state)
+        return .none
+
+      case .clearPauseHotkeysHotkey:
+        state.$hexSettings.withLock { $0.pauseHotkeysHotkey = nil }
+        return .none
+
       case let .keyEvent(keyEvent):
         if state.isSettingLiveHoldHotkey {
           return handleCapture(keyEvent, for: .liveHold, state: &state)
@@ -629,6 +662,9 @@ struct SettingsFeature {
         }
         if state.isSettingPasteLastTranscriptHotkey {
           return handleCapture(keyEvent, for: .pasteLastTranscript, state: &state)
+        }
+        if state.isSettingPauseHotkeysHotkey {
+          return handleCapture(keyEvent, for: .pauseHotkeys, state: &state)
         }
 
         guard state.isSettingHotKey else { return .none }

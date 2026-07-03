@@ -53,6 +53,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 	public var liveDoubleTapHotkey: HotKey?
 	public var batchHoldHotkey: HotKey?
 	public var batchDoubleTapHotkey: HotKey?
+	public var pauseHotkeysHotkey: HotKey?
 
 	private mutating func normalizeDoubleTapSettings() {
 		if !doubleTapLockEnabled {
@@ -90,7 +91,8 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		liveHoldHotkey: HotKey? = nil,
 		liveDoubleTapHotkey: HotKey? = nil,
 		batchHoldHotkey: HotKey? = HotKey(key: nil, modifiers: [.option]),
-		batchDoubleTapHotkey: HotKey? = HotKey(key: nil, modifiers: [.option])
+		batchDoubleTapHotkey: HotKey? = HotKey(key: nil, modifiers: [.option]),
+		pauseHotkeysHotkey: HotKey? = nil
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.soundEffectsVolume = soundEffectsVolume
@@ -122,6 +124,7 @@ public struct HexSettings: Codable, Equatable, Sendable {
 		self.liveDoubleTapHotkey = liveDoubleTapHotkey
 		self.batchHoldHotkey = batchHoldHotkey
 		self.batchDoubleTapHotkey = batchDoubleTapHotkey
+		self.pauseHotkeysHotkey = pauseHotkeysHotkey
 		normalizeDoubleTapSettings()
 	}
 
@@ -176,6 +179,7 @@ private enum HexSettingKey: String, CodingKey, CaseIterable {
 	case liveDoubleTapHotkey
 	case batchHoldHotkey
 	case batchDoubleTapHotkey
+	case pauseHotkeysHotkey
 }
 
 private struct SettingsField<Value: Codable & Sendable> {
@@ -365,6 +369,14 @@ private enum HexSettingsSchema {
 			},
 			encode: { container, key, value in
 				try container.encode(value, forKey: key)
+			}
+		).eraseToAny(),
+		SettingsField(
+			.pauseHotkeysHotkey,
+			keyPath: \.pauseHotkeysHotkey,
+			default: defaults.pauseHotkeysHotkey,
+			encode: { container, key, value in
+				try container.encodeIfPresent(value, forKey: key)
 			}
 		).eraseToAny()
 	]

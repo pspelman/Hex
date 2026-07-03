@@ -29,6 +29,7 @@ struct AppFeature {
 		var activeTab: ActiveTab = .settings
 		@Shared(.hexSettings) var hexSettings: HexSettings
 		@Shared(.modelBootstrapState) var modelBootstrapState: ModelBootstrapState
+		@Shared(.recordingHotkeysPaused) var recordingHotkeysPaused: Bool
 
     // Permission state
     var microphonePermission: PermissionStatus = .notDetermined
@@ -45,6 +46,7 @@ struct AppFeature {
     case setActiveTab(ActiveTab)
     case task
     case pasteLastTranscript
+    case toggleRecordingHotkeysPaused
 
     // Permission actions
     case checkPermissions
@@ -89,6 +91,7 @@ struct AppFeature {
       case .task:
         return .merge(
           startPasteLastTranscriptMonitoring(),
+          startPauseHotkeyToggleMonitoring(),
           startHotkeyDispatchEffect(),
           ensureSelectedModelReadiness(),
           startPermissionMonitoring(),
@@ -103,7 +106,14 @@ struct AppFeature {
         return .run { _ in
           await pasteboard.paste(lastTranscript)
         }
-        
+
+      case .toggleRecordingHotkeysPaused:
+        state.$recordingHotkeysPaused.withLock { $0.toggle() }
+        let paused = state.recordingHotkeysPaused
+        HexLog.hotKey.notice("Recording hotkeys \(paused ? "paused" : "resumed", privacy: .public)")
+        return .none
+
+
       case .transcription(.modelMissing):
         HexLog.app.notice("Model missing - activating app and switching to settings")
         state.activeTab = .settings
@@ -223,6 +233,59 @@ struct AppFeature {
     }
   }
 
+  /// Always-on monitor for the pause-hotkeys toggle chord.
+  ///
+  /// Registered separately from `startHotkeyDispatchEffect` so it keeps working
+  /// while the recording hotkeys are paused — pausing must never lock the user
+  /// out of unpausing. Suppressed while ANY hotkey capture row is recording so
+  /// the chord can be captured into another slot without also toggling.
+  private func startPauseHotkeyToggleMonitoring() -> Effect<Action> {
+    .run { send in
+      @Shared(.isSettingHotKey) var isSettingHotKey: Bool
+      @Shared(.isSettingLiveHoldHotkey) var isSettingLiveHoldHotkey: Bool
+      @Shared(.isSettingLiveDoubleTapHotkey) var isSettingLiveDoubleTapHotkey: Bool
+      @Shared(.isSettingBatchHoldHotkey) var isSettingBatchHoldHotkey: Bool
+      @Shared(.isSettingBatchDoubleTapHotkey) var isSettingBatchDoubleTapHotkey: Bool
+      @Shared(.isSettingPasteLastTranscriptHotkey) var isSettingPasteLastTranscriptHotkey: Bool
+      @Shared(.isSettingPauseHotkeysHotkey) var isSettingPauseHotkeysHotkey: Bool
+      @Shared(.hexSettings) var hexSettings: HexSettings
+
+      let token = keyEventMonitor.handleKeyEvent { keyEvent in
+        if isSettingHotKey
+            || isSettingLiveHoldHotkey
+            || isSettingLiveDoubleTapHotkey
+            || isSettingBatchHoldHotkey
+            || isSettingBatchDoubleTapHotkey
+            || isSettingPasteLastTranscriptHotkey
+            || isSettingPauseHotkeysHotkey {
+          return false
+        }
+
+        guard let pauseHotkey = hexSettings.pauseHotkeysHotkey,
+              let key = keyEvent.key,
+              key == pauseHotkey.key,
+              keyEvent.modifiers.matchesExactly(pauseHotkey.modifiers) else {
+          return false
+        }
+
+        MainActor.assumeIsolated {
+          send(.toggleRecordingHotkeysPaused)
+        }
+        return true // Intercept the key event
+      }
+
+      defer { token.cancel() }
+
+      await withTaskCancellationHandler {
+        while !Task.isCancelled {
+          try? await Task.sleep(for: .seconds(60))
+        }
+      } onCancel: {
+        token.cancel()
+      }
+    }
+  }
+
   /// Central hotkey dispatch hub (Option A from the four-hotkey rebuild plan).
   ///
   /// Owns a local `HotkeyDispatcher` copy that is kept in sync with `hexSettings`
@@ -243,22 +306,30 @@ struct AppFeature {
       @Shared(.isSettingBatchHoldHotkey) var isSettingBatchHoldHotkey: Bool
       @Shared(.isSettingBatchDoubleTapHotkey) var isSettingBatchDoubleTapHotkey: Bool
       @Shared(.isSettingPasteLastTranscriptHotkey) var isSettingPasteLastTranscriptHotkey: Bool
+      @Shared(.isSettingPauseHotkeysHotkey) var isSettingPauseHotkeysHotkey: Bool
+      @Shared(.recordingHotkeysPaused) var recordingHotkeysPaused: Bool
       @Shared(.hexSettings) var hexSettings: HexSettings
 
       // Local dispatcher copy — mutated synchronously inside the callback.
       // Re-configured on every event from the latest hexSettings.
       var dispatcher = HotkeyDispatcher()
 
+      // Filters outcomes while recording hotkeys are paused. Events keep flowing
+      // through the dispatcher so per-chord processor state never goes stale and
+      // a recording started before the pause can still be stopped by hotkey.
+      var pauseGate = HotkeyPauseGate()
+
       let token = keyEventMonitor.handleInputEvent { inputEvent in
         // Skip when the user is actively capturing any hotkey chord.
-        // Covers all six HotKeyCaptureTarget cases so no dispatcher event
+        // Covers all seven HotKeyCaptureTarget cases so no dispatcher event
         // leaks through while a slot row is in capture mode.
         if isSettingHotKey
             || isSettingLiveHoldHotkey
             || isSettingLiveDoubleTapHotkey
             || isSettingBatchHoldHotkey
             || isSettingBatchDoubleTapHotkey
-            || isSettingPasteLastTranscriptHotkey {
+            || isSettingPasteLastTranscriptHotkey
+            || isSettingPauseHotkeysHotkey {
           return false
         }
 
@@ -274,12 +345,18 @@ struct AppFeature {
         switch inputEvent {
         case .keyboard(let keyEvent):
           let now = Date()
-          let outcome = dispatcher.process(keyEvent: keyEvent, now: now)
+          let outcome = pauseGate.filter(
+            dispatcher.process(keyEvent: keyEvent, now: now),
+            paused: recordingHotkeysPaused
+          )
           return Self.routeDispatchOutcome(outcome, send: send, soundEffects: soundEffects)
 
         case .mouseClick:
           let now = Date()
-          let outcome = dispatcher.processMouseClick(now: now)
+          let outcome = pauseGate.filter(
+            dispatcher.processMouseClick(now: now),
+            paused: recordingHotkeysPaused
+          )
           _ = Self.routeDispatchOutcome(outcome, send: send, soundEffects: soundEffects)
           // Never intercept a mouse click — the user needs it to reach the target app.
           return false

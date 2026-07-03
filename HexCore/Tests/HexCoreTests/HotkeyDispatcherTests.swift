@@ -180,6 +180,37 @@ final class HotkeyDispatcherTests: XCTestCase {
 		XCTAssertEqual(postThresholdOutcome, .none)
 	}
 
+	// MARK: - Configuration.overlaps(chord:)
+
+	func testOverlapsDetectsExactChordMatch() {
+		let optP = HotKey(key: .p, modifiers: [.option])
+		let cfg = HotkeyDispatcher.Configuration(liveHoldHotkey: optP)
+
+		XCTAssertTrue(cfg.overlaps(chord: optP))
+	}
+
+	func testOverlapsDetectsModifierOnlySlotSubsumedByKeyedChord() {
+		// Slots bound to modifier-only Option; toggle chord Option+P would press
+		// Option first and start a hold before the toggle fires.
+		let opt = HotKey(key: nil, modifiers: [.option])
+		let cfg = HotkeyDispatcher.Configuration(batchHoldHotkey: opt, batchDoubleTapHotkey: opt)
+
+		XCTAssertTrue(cfg.overlaps(chord: HotKey(key: .p, modifiers: [.option])))
+	}
+
+	func testOverlapsFalseForDisjointChord() {
+		let opt = HotKey(key: nil, modifiers: [.option])
+		let cfg = HotkeyDispatcher.Configuration(batchHoldHotkey: opt)
+
+		XCTAssertFalse(cfg.overlaps(chord: HotKey(key: .h, modifiers: [.shift, .command])))
+	}
+
+	func testOverlapsFalseForEmptyConfiguration() {
+		let cfg = HotkeyDispatcher.Configuration()
+
+		XCTAssertFalse(cfg.overlaps(chord: HotKey(key: .p, modifiers: [.option])))
+	}
+
 	func testConflictReportedWhenSamePatternBoundToTwoSlots() {
 		let opt = HotKey(key: nil, modifiers: [.option])
 		var dispatcher = HotkeyDispatcher()

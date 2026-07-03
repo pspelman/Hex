@@ -77,6 +77,33 @@ struct FourSlotHotKeySectionView: View {
                 onClear: { store.send(.clearBatchDoubleTapHotkey) }
             )
 
+            // Pause toggle — a standalone global hotkey, NOT a dispatcher slot.
+            // It flips whether the four recording slots above respond at all.
+            HotKeySlotRow(
+                title: "Pause Hotkeys",
+                subtitle: "Toggle the recording hotkeys above on or off (resets on relaunch)",
+                hotKey: store.hexSettings.pauseHotkeysHotkey,
+                isCapturing: store.isSettingPauseHotkeysHotkey,
+                currentModifiers: store.currentPauseHotkeysModifiers,
+                isConflicting: pauseToggleOverlapsOtherHotkeys,
+                onTap: { store.send(.startSettingPauseHotkeysHotkey) },
+                onClear: { store.send(.clearPauseHotkeysHotkey) }
+            )
+
+            if store.isSettingPauseHotkeysHotkey {
+                Text("Use at least one modifier (⌘, ⌥, ⇧, ⌃) plus a key.")
+                    .settingsCaption()
+            } else if pauseToggleOverlapsOtherHotkeys {
+                Label {
+                    Text("This shortcut overlaps a recording hotkey or the paste shortcut; pressing it may trigger that action first.")
+                        .settingsCaption()
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.yellow)
+                }
+            }
+
             // Minimum key time — only relevant when at least one active slot is modifier-only.
             if hasModifierOnlySlot {
                 Label {
@@ -135,6 +162,15 @@ struct FourSlotHotKeySectionView: View {
             listed = "\(all), and \(names.last!)"
         }
         return "\(listed) are bound to the same chord with the same activation; only one will fire."
+    }
+
+    /// True when the pause-toggle chord collides with a recording slot or the
+    /// paste-last-transcript shortcut. Not part of the slot-conflict banner —
+    /// the toggle is not a dispatcher slot, so it gets its own warning.
+    private var pauseToggleOverlapsOtherHotkeys: Bool {
+        guard let chord = store.hexSettings.pauseHotkeysHotkey else { return false }
+        return hotkeyConfiguration.overlaps(chord: chord)
+            || chord == store.hexSettings.pasteLastTranscriptHotkey
     }
 
     /// True when any bound slot uses a modifier-only hotkey (key == nil).

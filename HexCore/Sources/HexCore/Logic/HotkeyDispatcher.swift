@@ -305,4 +305,17 @@ extension HotkeyDispatcher.Configuration {
 		guard let bound = bindings()[chord] else { return [] }
 		return bound.filter { $0.pattern == pattern }
 	}
+
+	/// True when pressing `chord` would collide with a bound slot: exact chord
+	/// equality, or a modifier-only slot whose modifiers are a subset of the
+	/// chord's (pressing the chord's modifiers first would start that slot's
+	/// hold before the keyed chord completes). Used by the Settings UI to warn
+	/// when a standalone hotkey (e.g. the pause toggle) overlaps a recording slot.
+	public func overlaps(chord: HotKey) -> Bool {
+		bindings().keys.contains { bound in
+			bound == chord
+				|| (bound.key == nil && !bound.modifiers.isEmpty
+					&& bound.modifiers.isSubset(of: chord.modifiers))
+		}
+	}
 }

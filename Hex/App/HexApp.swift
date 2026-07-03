@@ -19,6 +19,9 @@ struct HexApp: App {
             // Copy last transcript to clipboard
             MenuBarCopyLastTranscriptButton()
 
+            // Pause/resume the recording hotkeys (mirrors the pause toggle hotkey)
+            MenuBarPauseHotkeysToggle()
+
             Button("Settings...") {
                 appDelegate.presentSettingsView()
             }.keyboardShortcut(",")
@@ -29,13 +32,7 @@ struct HexApp: App {
 				NSApplication.shared.terminate(nil)
 			}.keyboardShortcut("q")
 		} label: {
-			let image: NSImage = {
-				let ratio = $0.size.height / $0.size.width
-				$0.size.height = 18
-				$0.size.width = 18 / ratio
-				return $0
-			}(NSImage(named: "HexIcon")!)
-			Image(nsImage: image)
+			MenuBarIconView()
 		}
 
 
