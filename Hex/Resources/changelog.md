@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0
+
+### Minor Changes
+
+- d81af41: Add experimental Live Transcription mode. Toggle it on under Settings > General to stream text into whatever text field has focus while you hold the hotkey, instead of waiting for the full transcript to paste at the end. Built on FluidAudio's Parakeet EOU streaming ASR with per-chunk partial hypotheses, a pure reconciliation engine in HexCore, and an Accessibility-first text injection adapter that falls back to CGEvent character injection. Requires a one-time ~250 MB EOU model download (separate from the Parakeet TDT v3 used in batch mode) on first hotkey press, and the standard Accessibility permission Hex already requests.
+- 0c3ef38: Add a global "Pause Hotkeys" shortcut that toggles the recording hotkeys on or off, so app shortcuts that share a chord (e.g. Option+Right in VLC) stop triggering recordings. Assign it in Settings → Hot Keys; the menu bar icon dims while paused and the menu gains a "Pause Recording Hotkeys" item. The paste-last-transcript shortcut and the toggle itself stay active, an in-flight recording can still be stopped normally, and the paused state resets on relaunch.
+
+### Patch Changes
+
+- b78f049: Stop priming the sound-effects audio engine when sound effects are disabled so Hex avoids unnecessary background audio activity and sleep assertions (#200).
+
 ## 0.7.3
 
 ### Patch Changes
