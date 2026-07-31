@@ -1,6 +1,7 @@
 build/
 updates/
 .vscode
+.idea/
 .DS_Store
 
 # Xcode
@@ -13,7 +14,7 @@ scripts
 tools
 ExportOptions.plist
 HexCore/.build
-HexCore/.swiftpm/xcode/xcuserdata/kit.xcuserdatad/xcschemes
+HexCore/.swiftpm/xcode/xcuserdata/
 FluidAudio/
 node_modules/
 .npm-cache/
