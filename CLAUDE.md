@@ -91,7 +91,7 @@ The app uses **The Composable Architecture (TCA)** for state management and is s
 - **WhisperKit**: Core ML transcription (tracking main branch)
 - **FluidAudio (Parakeet)**: Core ML ASR (multilingual) default model
 - **Sauce**: Keyboard event monitoring
-- **Sparkle**: Auto-updates (feed URL stripped from Info.plist; this fork ships personally and does not auto-update. Re-add `SUFeedURL` + `SUPublicEDKey` when ready to ship.)
+- **Sparkle**: Auto-updates. This fork has its own EdDSA key pair (generated 2026-10-18; private key in Phil's login keychain, public key in `Hex/Info.plist` as `SUPublicEDKey`). `SUFeedURL` points at the `appcast.xml` asset of the latest GitHub release on pspelman/Hex. See `docs/code-signing-primer.md`.
 - **Swift Composable Architecture**: State management
 - **Inject** Hot Reloading for SwiftUI
 
