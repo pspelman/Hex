@@ -624,8 +624,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/pointfreeco/swift-composable-architecture";
 			requirement = {
-				kind = revision;
-				revision = 055ca459ca8f413fe4b91ac1a067627f42d51fa8;
+				kind = exactVersion;
+				version = 1.26.2;
 			};
 		};
 		47E05E032D444EF800D26DA6 /* XCRemoteSwiftPackageReference "Sauce" */ = {
@@ -648,8 +648,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/FluidInference/FluidAudio";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = revision;
+				revision = 47552dde26f79b880efff2f23ad4dab55aa914ca;
 			};
 		};
 		B5045C952D78DED500D0A119 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {

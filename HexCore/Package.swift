@@ -11,7 +11,7 @@ let package = Package(
         .package(url: "https://github.com/Clipy/Sauce", branch: "master"),
         .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.3.2"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.11.0"),
-        .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
+        .package(url: "https://github.com/pointfreeco/swift-issue-reporting", from: "2.1.2"),
         .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
     ],
     targets: [
@@ -24,7 +24,7 @@ let package = Package(
 	            // emits IssueReporting calls, and Xcode's test action links package products
 	            // as dynamic frameworks where undeclared transitive symbols fail to resolve.
 	            .product(name: "ConcurrencyExtras", package: "swift-concurrency-extras"),
-	            .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
+	            .product(name: "IssueReporting", package: "swift-issue-reporting"),
 	            .product(name: "Dependencies", package: "swift-dependencies"),
 	            .product(name: "DependenciesMacros", package: "swift-dependencies"),
 	            .product(name: "Logging", package: "swift-log"),
