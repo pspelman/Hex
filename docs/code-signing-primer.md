@@ -44,6 +44,9 @@ your fresh Mac has none.
 | Developer ID Application | macOS only | Apps shipped outside the App Store (Hex) | Account Holder only |
 | Developer ID Installer | macOS only | Signing `.pkg` installers | Account Holder only |
 
+Xcode's Apple Accounts pane shows the Account Holder as "Admin", so do not
+read that label as a missing permission.
+
 Rules of thumb:
 
 - Development certs are disposable. Make a new one per Mac. Revoking one breaks
@@ -75,17 +78,40 @@ has the same cure with a different file from apple.com/certificateauthority.
 
 ## 4. Backing up and moving identities between Macs
 
-Two equivalent options. Pick one and put the result in your password manager.
+Xcode 27 removed the "Export Accounts" button from the Apple Accounts pane, so
+Keychain Access is the way to back up an identity. The `.p12` it produces is
+also the format CI systems and other tools expect.
 
-1. Xcode, Settings, Accounts, select the team, the "..." button, Export
-   Accounts. Produces a password-protected `.developerprofile` holding every
-   cert and private key for that team. Double-click it on another Mac.
-2. Keychain Access, My Certificates, right-click the cert, Export as `.p12`.
-   One identity per file. Import with `security import file.p12 -k
-   ~/Library/Keychains/login.keychain-db -P '<password>'`.
+1. Keychain Access, "login" keychain, My Certificates tab.
+2. Select the identity (for Hex, "Developer ID Application: Philip Spelman
+   (V64NFXWFVH)"). The disclosure triangle must show a private key beneath it.
+3. Right-click, Export, choose Personal Information Exchange (.p12), set a
+   strong password. It may also ask for the Mac login password.
+4. Put the file and its password in 1Password, then delete the file.
 
-Do this for the Developer ID identity the moment you create it, and again for
-the Apple Distribution identity when you make one for the iPhone app.
+Command-line equivalent, which exports every identity in the keychain at once:
+
+```bash
+security export -k ~/Library/Keychains/login.keychain-db -t identities \
+  -f pkcs12 -P '<strong-password>' -o ~/Desktop/identities.p12
+```
+
+Restore on another Mac:
+
+```bash
+security import identities.p12 -k ~/Library/Keychains/login.keychain-db \
+  -P '<password>' -T /usr/bin/codesign
+```
+
+The `-T` flag pre-authorizes `codesign` to use the key. Without it, and for
+any key Xcode itself creates, command-line signing fails with
+`errSecInternalComponent` until you open the key in Keychain Access, Access
+Control tab, and allow all applications. Xcode's own GUI builds are not
+affected, which is why the problem only shows up in scripts and CI.
+
+Do this for the Developer ID identity the moment you create it (done for Hex on
+2026-10-19), and again for the Apple Distribution identity when you make one
+for the iPhone app. Development identities are not worth backing up.
 
 ## 5. The iPhone flow (for the hart3s app)
 
@@ -147,7 +173,7 @@ Shipping a Mac app directly needs three things the App Store handles for you:
    returns a ticket. Staple the ticket so Gatekeeper trusts the app offline.
 3. **An update mechanism**, which is Sparkle here.
 
-One-time setup, still to do on this Mac:
+One-time setup, already done on this Mac, kept here for the next machine:
 
 ```bash
 # Create the Developer ID cert in Xcode: Manage Certificates, "+", Developer ID Application.
@@ -181,7 +207,8 @@ their public key would only ever accept updates they signed.
 Key facts for this fork:
 
 - Key pair generated 2026-10-18 on this Mac. Public key is in `Hex/Info.plist`.
-- Back up the private key now and store it in your password manager:
+  Private key is backed up in 1Password.
+- To export the private key again:
   ```bash
   ~/Library/Developer/Xcode/DerivedData/Hex-*/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys -x ~/Desktop/hex-sparkle-private.key
   ```
@@ -215,6 +242,11 @@ Done:
 
 - Apple ID for team V64NFXWFVH added to Xcode.
 - Apple Development identity created and valid; WWDR G3 intermediate imported.
+- Developer ID Application identity created, CLI access granted, backed up to
+  1Password as a `.p12`.
+- `AC_PASSWORD` notarytool profile stored. A full archive, export, notarize,
+  staple, and Gatekeeper check passed on 2026-10-19 (submission
+  439fa767-26ff-41fa-945e-ad9b51dde082).
 - All targets (app and tests) use team V64NFXWFVH.
 - Sparkle key pair generated; `SUPublicEDKey` and `SUFeedURL` in Info.plist.
 - Homebrew cask `hex.rb` points at pspelman/Hex and the com.pspelman bundle ID.
@@ -228,9 +260,6 @@ xcodebuild -scheme Hex -configuration Release -destination 'platform=macOS,arch=
 
 Still to do before the first real release:
 
-- Back up the Sparkle private key (section 7).
-- Create the Developer ID Application identity and back it up (sections 4, 6).
-- Store the `AC_PASSWORD` notarytool profile (section 6).
 - Restore or rewrite the release CLI. `CLAUDE.md` describes `tools/src/cli.ts`,
   but this checkout only contains `tools/scripts/add-changeset.ts`.
 - Decide whether the release tool keeps uploading to S3 or switches to GitHub
