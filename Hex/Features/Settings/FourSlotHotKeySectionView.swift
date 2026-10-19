@@ -81,7 +81,7 @@ struct FourSlotHotKeySectionView: View {
             // It flips whether the four recording slots above respond at all.
             HotKeySlotRow(
                 title: "Pause Hotkeys",
-                subtitle: "Toggle the recording hotkeys above on or off (resets on relaunch)",
+                subtitle: "Toggle the recording hotkeys above on or off. Hex always starts unpaused; the shortcut itself is saved.",
                 hotKey: store.hexSettings.pauseHotkeysHotkey,
                 isCapturing: store.isSettingPauseHotkeysHotkey,
                 currentModifiers: store.currentPauseHotkeysModifiers,

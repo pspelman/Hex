@@ -33,28 +33,23 @@ struct PermissionsSectionView: View {
 			)
 		}
 
-		if store.hotkeyPermissionState.inputMonitoring != .granted {
-			VStack(alignment: .leading, spacing: 6) {
-				Label {
-					Text("Input Monitoring is required so Hex can listen for your hotkey.")
-						.font(.callout)
-						.foregroundStyle(.primary)
-				} icon: {
-					Image(systemName: "exclamationmark.triangle.fill")
-						.foregroundStyle(.yellow)
-				}
+		// Both permissions gate the keyboard tap. Surface whichever is missing so a
+		// user who sees hotkey capture silently fail (keys beep, nothing registers)
+		// gets an on-screen pointer instead of having to check Console.
+		if store.hotkeyPermissionState.accessibility != .granted {
+			missingPermissionBanner(
+				message: "Accessibility is required so Hex can see your hotkeys.",
+				buttonTitle: "Open Accessibility Settings",
+				action: { store.send(.requestAccessibility) }
+			)
+		}
 
-				Button {
-					store.send(.requestInputMonitoring)
-				} label: {
-					Text("Open Input Monitoring Settings")
-				}
-				.buttonStyle(.borderedProminent)
-				.controlSize(.small)
-			}
-			.padding(12)
-			.background(Color(nsColor: .controlBackgroundColor))
-			.clipShape(RoundedRectangle(cornerRadius: 10))
+		if store.hotkeyPermissionState.inputMonitoring != .granted {
+			missingPermissionBanner(
+				message: "Input Monitoring is required so Hex can listen for your hotkey.",
+				buttonTitle: "Open Input Monitoring Settings",
+				action: { store.send(.requestInputMonitoring) }
+			)
 		}
 
 		} header: {
@@ -102,6 +97,33 @@ struct PermissionsSectionView: View {
 		.frame(maxWidth: .infinity)
 		.background(Color(nsColor: .controlBackgroundColor))
 		.clipShape(RoundedRectangle(cornerRadius: 8))
+	}
+
+	@ViewBuilder
+	private func missingPermissionBanner(
+		message: String,
+		buttonTitle: String,
+		action: @escaping () -> Void
+	) -> some View {
+		VStack(alignment: .leading, spacing: 6) {
+			Label {
+				Text(message)
+					.font(.callout)
+					.foregroundStyle(.primary)
+			} icon: {
+				Image(systemName: "exclamationmark.triangle.fill")
+					.foregroundStyle(.yellow)
+			}
+
+			Button(action: action) {
+				Text(buttonTitle)
+			}
+			.buttonStyle(.borderedProminent)
+			.controlSize(.small)
+		}
+		.padding(12)
+		.background(Color(nsColor: .controlBackgroundColor))
+		.clipShape(RoundedRectangle(cornerRadius: 10))
 	}
 
 	private var combinedAccessibilityStatus: PermissionStatus {
